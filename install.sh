@@ -559,16 +559,24 @@ app.post('/api/apps', requireAuth, async (req, res) => {
 
 app.patch('/api/apps/:id', requireAuth, (req, res) => {
     try {
-        const updates = req.body;
-        const setClauses = Object.keys(updates).map(key => {
-            if (key === 'iconColor') return 'icon_url = ?';
-            return `${key} = ?`;
-        }).join(', ');
-        const values = Object.values(updates);
+        const { status, name, image, iconUrl, ports, environment, volumes } = req.body;
+        const updates = [];
+        const values = [];
         
-        db.prepare(`UPDATE installed_apps SET ${setClauses} WHERE id = ?`).run(...values, req.params.id);
+        if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+        if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+        if (image !== undefined) { updates.push('image = ?'); values.push(image); }
+        if (iconUrl !== undefined) { updates.push('icon_url = ?'); values.push(iconUrl); }
+        if (ports !== undefined) { updates.push('ports = ?'); values.push(JSON.stringify(ports)); }
+        if (environment !== undefined) { updates.push('environment = ?'); values.push(JSON.stringify(environment)); }
+        if (volumes !== undefined) { updates.push('volumes = ?'); values.push(JSON.stringify(volumes)); }
+        
+        if (updates.length > 0) {
+            db.prepare(`UPDATE installed_apps SET ${updates.join(', ')} WHERE id = ?`).run(...values, req.params.id);
+        }
         res.json({ success: true });
     } catch (error) {
+        console.error('Update error:', error);
         res.status(500).json({ error: 'Failed to update app' });
     }
 });
@@ -1002,12 +1010,13 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 return { host: inputs[0].value, container: inputs[1].value };
             }).filter(v => v.host && v.container);
             try {
-                const res = await fetch('/api/apps', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: currentApp.id || name, name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes }),
-                    credentials: 'include'
-                });
+                const isEdit = currentApp && currentApp.isEdit;
+                const url = isEdit ? `/api/apps/${currentApp.id}` : '/api/apps';
+                const method = isEdit ? 'PATCH' : 'POST';
+                const body = isEdit 
+                    ? { name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes }
+                    : { id: currentApp.id || name.toLowerCase().replace(/\s+/g, '-'), name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes };
+                const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'include' });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
                 closeModal();
@@ -1061,10 +1070,10 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             const app = apps.find(a => a.id === id);
             if (!app) return;
             const catalogApp = APP_CATALOG.find(a => a.id === app.id || a.name === app.name);
-            currentApp = { ...app, iconUrl: app.icon_url || (catalogApp ? catalogApp.iconUrl : '') };
+            currentApp = { ...app, iconUrl: app.icon_url || (catalogApp ? catalogApp.iconUrl : ''), isEdit: true };
             document.getElementById('modal-icon').src = currentApp.iconUrl || 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png';
             document.getElementById('modal-title').textContent = app.name + ' (Edit)';
-            document.getElementById('modal-desc').textContent = 'Modify settings and reinstall';
+            document.getElementById('modal-desc').textContent = 'Modify app settings';
             document.getElementById('modal-name').value = app.name;
             document.getElementById('modal-image').value = app.image;
             document.getElementById('modal-ports').innerHTML = '';
@@ -1073,7 +1082,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             (app.ports || []).forEach(p => addPort(p.host || p.h, p.container || p.c));
             Object.entries(app.environment || {}).forEach(([k, v]) => addEnv(k, v));
             (app.volumes || []).forEach(v => addVolume(v.host, v.container));
-            document.getElementById('modal-submit').textContent = 'Save & Reinstall';
+            document.getElementById('modal-submit').textContent = 'Save Changes';
             document.getElementById('install-modal').classList.remove('hidden');
         }
 
