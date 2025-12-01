@@ -669,7 +669,7 @@ Environment=PORT=8080
 WantedBy=multi-user.target
 SYSTEMD
 
-# Create public directory for frontend (placeholder - will be built)
+# Create public directory for frontend
 mkdir -p $INSTALL_DIR/public
 cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 <!DOCTYPE html>
@@ -698,58 +698,207 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
     </script>
     <style>
         body { background: hsl(222 47% 11%); color: hsl(210 40% 98%); font-family: system-ui, sans-serif; }
-        .card { background: hsl(222 47% 13% / 0.4); border: 1px solid hsl(217 19% 27% / 0.5); }
+        .card { background: hsl(222 47% 13% / 0.4); border: 1px solid hsl(217 19% 27% / 0.5); backdrop-filter: blur(12px); }
+        .btn-primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
+        .btn-primary:hover { background: linear-gradient(135deg, #2563eb, #7c3aed); }
     </style>
 </head>
 <body class="min-h-screen">
-    <div id="app" class="container mx-auto px-4 py-8 max-w-6xl">
-        <header class="text-center py-12">
-            <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">DockPilot</h1>
-            <p class="text-gray-400">Docker Container Management Made Simple</p>
-        </header>
-        
-        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-12" id="apps-grid">
-            <div class="card rounded-2xl p-6 text-center">
-                <div class="text-4xl mb-4">⏳</div>
-                <p class="text-gray-400">Loading apps...</p>
+    <!-- Setup Page -->
+    <div id="setup-page" class="hidden min-h-screen flex items-center justify-center p-4">
+        <div class="card rounded-2xl p-8 w-full max-w-md text-center">
+            <div class="w-16 h-16 mx-auto mb-6 rounded-2xl btn-primary flex items-center justify-center">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
             </div>
+            <h1 class="text-2xl font-bold mb-2">Welcome to DockPilot</h1>
+            <p class="text-gray-400 mb-6">Create your admin account to get started</p>
+            <form id="setup-form" class="space-y-4 text-left">
+                <div>
+                    <label class="block text-sm mb-2">Username</label>
+                    <input type="text" id="setup-username" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="admin">
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Password</label>
+                    <input type="password" id="setup-password" required minlength="6" class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="Min 6 characters">
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Confirm Password</label>
+                    <input type="password" id="setup-confirm" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="Confirm password">
+                </div>
+                <div id="setup-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
+                <button type="submit" class="w-full py-3 rounded-xl btn-primary text-white font-medium">Create Account</button>
+            </form>
         </div>
+    </div>
 
-        <div class="card rounded-2xl p-6 mb-6">
-            <h2 class="text-xl font-bold mb-4">Install New App</h2>
-            <div class="grid gap-4 md:grid-cols-4" id="catalog"></div>
+    <!-- Login Page -->
+    <div id="login-page" class="hidden min-h-screen flex items-center justify-center p-4">
+        <div class="card rounded-2xl p-8 w-full max-w-md text-center">
+            <div class="w-16 h-16 mx-auto mb-6 rounded-2xl btn-primary flex items-center justify-center">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold mb-2">Welcome Back</h1>
+            <p class="text-gray-400 mb-6">Sign in to your DockPilot dashboard</p>
+            <form id="login-form" class="space-y-4 text-left">
+                <div>
+                    <label class="block text-sm mb-2">Username</label>
+                    <input type="text" id="login-username" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Password</label>
+                    <input type="password" id="login-password" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none">
+                </div>
+                <div id="login-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
+                <button type="submit" class="w-full py-3 rounded-xl btn-primary text-white font-medium">Sign In</button>
+            </form>
         </div>
+    </div>
 
-        <div class="card rounded-2xl p-6">
-            <h2 class="text-xl font-bold mb-4">Running Containers</h2>
-            <div id="containers" class="space-y-2"></div>
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden">
+        <nav class="border-b border-white/10 px-4 py-3">
+            <div class="container mx-auto max-w-6xl flex justify-between items-center">
+                <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">DockPilot</h1>
+                <div class="flex items-center gap-4">
+                    <span id="user-display" class="text-gray-400 text-sm"></span>
+                    <button onclick="logout()" class="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm">Logout</button>
+                </div>
+            </div>
+        </nav>
+        <div class="container mx-auto px-4 py-8 max-w-6xl">
+            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8" id="apps-grid">
+                <div class="card rounded-2xl p-6 text-center">
+                    <div class="text-4xl mb-4">⏳</div>
+                    <p class="text-gray-400">Loading apps...</p>
+                </div>
+            </div>
+            <div class="card rounded-2xl p-6 mb-6">
+                <h2 class="text-xl font-bold mb-4">Install New App</h2>
+                <div class="grid gap-4 md:grid-cols-4 lg:grid-cols-6" id="catalog"></div>
+            </div>
+            <div class="card rounded-2xl p-6">
+                <h2 class="text-xl font-bold mb-4">Running Containers</h2>
+                <div id="containers" class="space-y-2"></div>
+            </div>
         </div>
     </div>
 
     <script>
+        let currentUser = null;
+
         const APP_CATALOG = [
-            { id: 'portainer', name: 'Portainer', image: 'portainer/portainer-ce:latest', icon: '🐳', ports: [{ container: 9000, host: 9000 }] },
-            { id: 'nginx', name: 'Nginx', image: 'nginx:latest', icon: '🌐', ports: [{ container: 80, host: 8081 }] },
+            { id: 'plex', name: 'Plex', image: 'plexinc/pms-docker:latest', icon: '🎬', ports: [{ container: 32400, host: 32400 }] },
+            { id: 'jellyfin', name: 'Jellyfin', image: 'jellyfin/jellyfin:latest', icon: '🎥', ports: [{ container: 8096, host: 8096 }] },
             { id: 'pihole', name: 'Pi-hole', image: 'pihole/pihole:latest', icon: '🛡️', ports: [{ container: 80, host: 8053 }] },
             { id: 'homeassistant', name: 'Home Assistant', image: 'homeassistant/home-assistant:stable', icon: '🏠', ports: [{ container: 8123, host: 8123 }] },
             { id: 'nextcloud', name: 'Nextcloud', image: 'nextcloud:latest', icon: '☁️', ports: [{ container: 80, host: 8082 }] },
-            { id: 'grafana', name: 'Grafana', image: 'grafana/grafana:latest', icon: '📊', ports: [{ container: 3000, host: 3000 }] },
+            { id: 'portainer', name: 'Portainer', image: 'portainer/portainer-ce:latest', icon: '🐳', ports: [{ container: 9000, host: 9000 }] },
+            { id: 'nodered', name: 'Node-RED', image: 'nodered/node-red:latest', icon: '🔴', ports: [{ container: 1880, host: 1880 }] },
+            { id: 'qbittorrent', name: 'qBittorrent', image: 'linuxserver/qbittorrent:latest', icon: '📥', ports: [{ container: 8080, host: 8090 }] },
             { id: 'transmission', name: 'Transmission', image: 'linuxserver/transmission:latest', icon: '⬇️', ports: [{ container: 9091, host: 9091 }] },
-            { id: 'redis', name: 'Redis', image: 'redis:alpine', icon: '🔴', ports: [{ container: 6379, host: 6379 }] },
-            { id: 'postgres', name: 'PostgreSQL', image: 'postgres:16', icon: '🐘', ports: [{ container: 5432, host: 5432 }] },
+            { id: 'grafana', name: 'Grafana', image: 'grafana/grafana:latest', icon: '📊', ports: [{ container: 3000, host: 3000 }] },
+            { id: 'nginx-proxy', name: 'Nginx Proxy Manager', image: 'jc21/nginx-proxy-manager:latest', icon: '🌐', ports: [{ container: 81, host: 81 }] },
+            { id: 'vaultwarden', name: 'Vaultwarden', image: 'vaultwarden/server:latest', icon: '🔐', ports: [{ container: 80, host: 8084 }] },
+            { id: 'syncthing', name: 'Syncthing', image: 'syncthing/syncthing:latest', icon: '🔄', ports: [{ container: 8384, host: 8384 }] },
         ];
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/session', { credentials: 'include' });
+                const data = await res.json();
+                
+                document.getElementById('setup-page').classList.add('hidden');
+                document.getElementById('login-page').classList.add('hidden');
+                document.getElementById('dashboard').classList.add('hidden');
+                
+                if (data.setupRequired) {
+                    document.getElementById('setup-page').classList.remove('hidden');
+                } else if (!data.authenticated) {
+                    document.getElementById('login-page').classList.remove('hidden');
+                } else {
+                    currentUser = data.user;
+                    document.getElementById('user-display').textContent = data.user.username;
+                    document.getElementById('dashboard').classList.remove('hidden');
+                    loadApps();
+                    loadContainers();
+                }
+            } catch (err) {
+                console.error('Auth check failed:', err);
+            }
+        }
+
+        document.getElementById('setup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('setup-username').value;
+            const password = document.getElementById('setup-password').value;
+            const confirm = document.getElementById('setup-confirm').value;
+            const errorEl = document.getElementById('setup-error');
+            
+            if (password !== confirm) {
+                errorEl.textContent = 'Passwords do not match';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/auth/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                checkAuth();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            const errorEl = document.getElementById('login-error');
+            
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                checkAuth();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.classList.remove('hidden');
+            }
+        });
+
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+            checkAuth();
+        }
 
         async function loadApps() {
             try {
-                const res = await fetch('/api/apps');
+                const res = await fetch('/api/apps', { credentials: 'include' });
+                if (!res.ok) return;
                 const apps = await res.json();
                 const grid = document.getElementById('apps-grid');
                 
                 if (apps.length === 0) {
-                    grid.innerHTML = '<div class="card rounded-2xl p-6 text-center col-span-full"><p class="text-gray-400">No apps installed. Install one from the catalog below!</p></div>';
+                    grid.innerHTML = '<div class="card rounded-2xl p-6 text-center col-span-full"><p class="text-gray-400">No apps installed yet. Install one from the catalog below!</p></div>';
                 } else {
                     grid.innerHTML = apps.map(app => `
-                        <div class="card rounded-2xl p-6 text-center group relative">
+                        <div class="card rounded-2xl p-6 text-center relative">
                             <div class="absolute top-4 right-4 w-3 h-3 rounded-full ${app.status === 'running' ? 'bg-green-500' : 'bg-red-500'}"></div>
                             <div class="text-4xl mb-4">${getIcon(app.name)}</div>
                             <h3 class="font-bold text-lg">${app.name}</h3>
@@ -770,8 +919,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         }
 
         function getIcon(name) {
-            const icons = { Portainer: '🐳', Nginx: '🌐', 'Pi-hole': '🛡️', 'Home Assistant': '🏠', Nextcloud: '☁️', Grafana: '📊', Transmission: '⬇️', Redis: '🔴', PostgreSQL: '🐘' };
-            return icons[name] || '📦';
+            const app = APP_CATALOG.find(a => a.name === name);
+            return app ? app.icon : '📦';
         }
 
         async function installApp(app) {
@@ -779,7 +928,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 await fetch('/api/apps', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...app, category: 'App', description: '' })
+                    body: JSON.stringify({ ...app, category: 'App', description: '' }),
+                    credentials: 'include'
                 });
                 loadApps();
                 loadContainers();
@@ -791,11 +941,12 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         async function toggleApp(id, containerId, status) {
             if (!containerId) return alert('No container ID');
             const action = status === 'running' ? 'stop' : 'start';
-            await fetch(`/api/containers/${containerId}/${action}`, { method: 'POST' });
+            await fetch(`/api/containers/${containerId}/${action}`, { method: 'POST', credentials: 'include' });
             await fetch(`/api/apps/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: action === 'start' ? 'running' : 'stopped' })
+                body: JSON.stringify({ status: action === 'start' ? 'running' : 'stopped' }),
+                credentials: 'include'
             });
             loadApps();
             loadContainers();
@@ -803,7 +954,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 
         async function uninstallApp(id) {
             if (confirm('Remove this app?')) {
-                await fetch(`/api/apps/${id}`, { method: 'DELETE' });
+                await fetch(`/api/apps/${id}`, { method: 'DELETE', credentials: 'include' });
                 loadApps();
                 loadContainers();
             }
@@ -811,7 +962,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 
         async function loadContainers() {
             try {
-                const res = await fetch('/api/containers');
+                const res = await fetch('/api/containers', { credentials: 'include' });
+                if (!res.ok) return;
                 const containers = await res.json();
                 document.getElementById('containers').innerHTML = containers.length ? containers.map(c => `
                     <div class="flex items-center justify-between p-3 rounded-lg bg-white/5">
@@ -829,15 +981,16 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 
         // Render catalog
         document.getElementById('catalog').innerHTML = APP_CATALOG.map(app => `
-            <button onclick='installApp(${JSON.stringify(app)})' class="card rounded-xl p-4 text-left hover:bg-white/5 transition">
+            <button onclick='installApp(${JSON.stringify(app)})' class="card rounded-xl p-4 text-center hover:bg-white/10 transition">
                 <div class="text-2xl mb-2">${app.icon}</div>
-                <div class="font-medium">${app.name}</div>
+                <div class="font-medium text-sm">${app.name}</div>
             </button>
         `).join('');
 
-        loadApps();
-        loadContainers();
-        setInterval(() => { loadApps(); loadContainers(); }, 10000);
+        // Initial auth check
+        checkAuth();
+        setInterval(loadApps, 10000);
+        setInterval(loadContainers, 10000);
     </script>
 </body>
 </html>
