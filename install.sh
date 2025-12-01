@@ -1249,7 +1249,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         let selectedCategory = 'all';
         let currentPage = 0;
         let searchQuery = '';
-        const APPS_PER_PAGE = 12;
+        const APPS_PER_PAGE = 18;
 
         // Section Navigation
         function showSection(section) {
