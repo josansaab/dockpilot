@@ -3,9 +3,11 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertInstalledAppSchema, insertSettingsSchema } from "@shared/schema";
 import * as docker from "./docker";
+import * as systemMetrics from "./systemMetrics";
 import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
+import { execSync } from "child_process";
 
 // Extend Express Request type to include user
 declare global {
@@ -417,6 +419,65 @@ export async function registerRoutes(
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  // ====== System Stats Routes (Protected) ======
+
+  // Get system stats (CPU, memory, disk, network)
+  app.get("/api/system/stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await systemMetrics.getSystemStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Stats error:', error);
+      res.json({ cpu: 0, memory: 0, memTotal: 0, memUsed: 0, disk: 0, diskTotal: '0 GB', diskUsed: '0 GB', uptime: '--', network: [], dockerReady: false, dockerStatus: 'Error' });
+    }
+  });
+
+  // Get storage info (disks, block devices, ZFS, volumes)
+  app.get("/api/system/storage", requireAuth, async (req, res) => {
+    try {
+      const storage = await systemMetrics.getStorageInfo();
+      res.json(storage);
+    } catch (error) {
+      console.error('Storage error:', error);
+      res.json({ disks: [], blockDevices: [], zfs: [], volumes: [] });
+    }
+  });
+
+  // Docker system prune
+  app.post("/api/system/prune", requireAuth, async (req, res) => {
+    try {
+      let spaceReclaimed = '0 bytes';
+      try {
+        const output = execSync('docker system prune -af 2>/dev/null || echo "0"', { encoding: 'utf8' });
+        const match = output.match(/reclaimed\s+([\d.]+\s*\w+)/i);
+        if (match) spaceReclaimed = match[1];
+      } catch (e) { spaceReclaimed = 'Unknown'; }
+      res.json({ success: true, spaceReclaimed });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to prune' });
+    }
+  });
+
+  // ZFS Snapshot
+  app.post("/api/system/zfs/snapshot", requireAuth, (req, res) => {
+    try {
+      const { dataset } = req.body;
+      if (!dataset || !/^[\w\/-]+$/.test(dataset)) {
+        return res.status(400).json({ error: 'Invalid dataset name' });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const snapshot = `${dataset}@dockpilot-${timestamp}`;
+      try {
+        execSync(`zfs snapshot ${snapshot}`, { encoding: 'utf8' });
+        res.json({ success: true, snapshot });
+      } catch (e: any) {
+        res.json({ success: false, error: e.message || 'Failed to create snapshot' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create snapshot' });
     }
   });
 
