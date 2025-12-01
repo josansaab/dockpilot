@@ -139,7 +139,9 @@ cat > $INSTALL_DIR/package.json << 'PACKAGEJSON'
     "build": "cd frontend && npm run build"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.0.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dockerode": "^4.0.2",
     "express": "^4.21.2"
@@ -170,6 +172,21 @@ const db = new Database(dbPath);
 
 // Initialize tables
 db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS installed_apps (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -324,6 +341,9 @@ DOCKERJS
 cat > $INSTALL_DIR/server/index.js << 'SERVERJS'
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db from './database.js';
@@ -333,11 +353,94 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-app.use(cors());
+app.use(cors({ credentials: true, origin: true }));
 app.use(express.json());
+app.use(cookieParser());
 
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Auth middleware
+function requireAuth(req, res, next) {
+    const sessionId = req.cookies?.sessionId;
+    if (!sessionId) return res.status(401).json({ error: 'Not authenticated' });
+    
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+    if (!session || new Date(session.expires_at) < new Date()) {
+        if (session) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+        return res.status(401).json({ error: 'Session expired' });
+    }
+    
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(session.user_id);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    
+    req.user = user;
+    next();
+}
+
+// Auth Routes
+app.get('/api/auth/session', (req, res) => {
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+    if (userCount === 0) return res.json({ authenticated: false, setupRequired: true });
+    
+    const sessionId = req.cookies?.sessionId;
+    if (!sessionId) return res.json({ authenticated: false, setupRequired: false });
+    
+    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+    if (!session || new Date(session.expires_at) < new Date()) {
+        if (session) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+        res.clearCookie('sessionId');
+        return res.json({ authenticated: false, setupRequired: false });
+    }
+    
+    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(session.user_id);
+    res.json({ authenticated: true, setupRequired: false, user });
+});
+
+app.post('/api/auth/setup', async (req, res) => {
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+    if (userCount > 0) return res.status(400).json({ error: 'Setup already completed' });
+    
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = crypto.randomUUID();
+    db.prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)').run(userId, username, passwordHash);
+    
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').run(sessionId, userId, expiresAt);
+    
+    res.cookie('sessionId', sessionId, { httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.json({ success: true, user: { id: userId, username } });
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').run(sessionId, user.id, expiresAt);
+    
+    res.cookie('sessionId', sessionId, { httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.json({ success: true, user: { id: user.id, username: user.username } });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    const sessionId = req.cookies?.sessionId;
+    if (sessionId) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    res.clearCookie('sessionId');
+    res.json({ success: true });
+});
 
 // API Routes
 app.get('/api/health', async (req, res) => {
@@ -345,8 +448,8 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'ok', dockerAvailable, timestamp: new Date().toISOString() });
 });
 
-// Containers
-app.get('/api/containers', async (req, res) => {
+// Containers (protected)
+app.get('/api/containers', requireAuth, async (req, res) => {
     try {
         const containers = await docker.listContainers(true);
         res.json(containers);
@@ -355,7 +458,7 @@ app.get('/api/containers', async (req, res) => {
     }
 });
 
-app.post('/api/containers/:id/start', async (req, res) => {
+app.post('/api/containers/:id/start', requireAuth, async (req, res) => {
     try {
         await docker.startContainer(req.params.id);
         res.json({ success: true });
@@ -364,7 +467,7 @@ app.post('/api/containers/:id/start', async (req, res) => {
     }
 });
 
-app.post('/api/containers/:id/stop', async (req, res) => {
+app.post('/api/containers/:id/stop', requireAuth, async (req, res) => {
     try {
         await docker.stopContainer(req.params.id);
         res.json({ success: true });
@@ -373,7 +476,7 @@ app.post('/api/containers/:id/stop', async (req, res) => {
     }
 });
 
-app.delete('/api/containers/:id', async (req, res) => {
+app.delete('/api/containers/:id', requireAuth, async (req, res) => {
     try {
         await docker.removeContainer(req.params.id, true);
         res.json({ success: true });
@@ -382,8 +485,8 @@ app.delete('/api/containers/:id', async (req, res) => {
     }
 });
 
-// Images
-app.get('/api/images', async (req, res) => {
+// Images (protected)
+app.get('/api/images', requireAuth, async (req, res) => {
     try {
         const images = await docker.listImages();
         res.json(images);
@@ -392,7 +495,7 @@ app.get('/api/images', async (req, res) => {
     }
 });
 
-app.post('/api/images/pull', async (req, res) => {
+app.post('/api/images/pull', requireAuth, async (req, res) => {
     try {
         const { imageName } = req.body;
         if (!imageName) return res.status(400).json({ error: 'Image name required' });
@@ -403,8 +506,8 @@ app.post('/api/images/pull', async (req, res) => {
     }
 });
 
-// Installed Apps
-app.get('/api/apps', (req, res) => {
+// Installed Apps (protected)
+app.get('/api/apps', requireAuth, (req, res) => {
     try {
         const apps = db.prepare('SELECT * FROM installed_apps').all();
         // Parse JSON fields
@@ -421,7 +524,7 @@ app.get('/api/apps', (req, res) => {
     }
 });
 
-app.post('/api/apps', async (req, res) => {
+app.post('/api/apps', requireAuth, async (req, res) => {
     try {
         const { id, name, description, category, image, iconColor, ports, environment, volumes } = req.body;
         
@@ -454,7 +557,7 @@ app.post('/api/apps', async (req, res) => {
     }
 });
 
-app.patch('/api/apps/:id', (req, res) => {
+app.patch('/api/apps/:id', requireAuth, (req, res) => {
     try {
         const updates = req.body;
         const setClauses = Object.keys(updates).map(key => {
@@ -470,7 +573,7 @@ app.patch('/api/apps/:id', (req, res) => {
     }
 });
 
-app.delete('/api/apps/:id', async (req, res) => {
+app.delete('/api/apps/:id', requireAuth, async (req, res) => {
     try {
         const app = db.prepare('SELECT * FROM installed_apps WHERE id = ?').get(req.params.id);
         if (app?.container_id) {
@@ -487,8 +590,8 @@ app.delete('/api/apps/:id', async (req, res) => {
     }
 });
 
-// Settings
-app.get('/api/settings', (req, res) => {
+// Settings (protected)
+app.get('/api/settings', requireAuth, (req, res) => {
     try {
         const settings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
         res.json(settings);
@@ -497,7 +600,7 @@ app.get('/api/settings', (req, res) => {
     }
 });
 
-app.patch('/api/settings', (req, res) => {
+app.patch('/api/settings', requireAuth, (req, res) => {
     try {
         const { serverName, webPort, startOnBoot, autoUpdate, analytics } = req.body;
         db.prepare(`

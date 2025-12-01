@@ -8,7 +8,8 @@ import {
   Palette, 
   Bell, 
   Terminal,
-  Save
+  Save,
+  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -188,6 +189,41 @@ export default function Settings() {
               >
                 <Save className="w-4 h-4" /> {saveMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
+            </div>
+
+            <div className="space-y-4 pt-8">
+              <h2 className="text-xl font-semibold text-red-400">Danger Zone</h2>
+              <Separator className="bg-red-500/20" />
+              
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Sign Out</Label>
+                  <p className="text-xs text-muted-foreground">Log out of your DockPilot account</p>
+                </div>
+                <Button 
+                  variant="destructive"
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/auth/logout", { 
+                        method: "POST",
+                        credentials: "include" 
+                      });
+                      queryClient.invalidateQueries({ queryKey: ["session"] });
+                      window.location.reload();
+                    } catch (error) {
+                      toast({
+                        title: "Logout Failed",
+                        description: "Please try again.",
+                        variant: "destructive"
+                      });
+                    }
+                  }}
+                  className="gap-2"
+                  data-testid="button-logout"
+                >
+                  <LogOut className="w-4 h-4" /> Sign Out
+                </Button>
+              </div>
             </div>
 
           </div>
