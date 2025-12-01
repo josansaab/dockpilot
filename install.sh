@@ -287,29 +287,85 @@ export async function pullImage(imageName) {
     });
 }
 
-export async function createAndStartContainer(imageName, containerName, ports = [], environment = {}, volumes = []) {
+export async function createAndStartContainer(imageName, containerName, ports = [], environment = {}, volumes = [], dockerConfig = {}) {
     const portBindings = {};
     const exposedPorts = {};
 
     ports.forEach(({ container, host }) => {
-        exposedPorts[`${container}/tcp`] = {};
-        portBindings[`${container}/tcp`] = [{ HostPort: host.toString() }];
+        exposedPorts[container + '/tcp'] = {};
+        portBindings[container + '/tcp'] = [{ HostPort: host.toString() }];
     });
 
-    const binds = volumes.map(v => `${v.host}:${v.container}`);
+    // Combine volumes and additional bind mounts
+    const binds = volumes.map(v => v.host + ':' + v.container);
+    if (dockerConfig.binds && Array.isArray(dockerConfig.binds)) {
+        dockerConfig.binds.forEach(b => {
+            const bindStr = b.readonly ? (b.host + ':' + b.container + ':ro') : (b.host + ':' + b.container);
+            binds.push(bindStr);
+        });
+    }
 
-    const container = await docker.createContainer({
+    // Build HostConfig with advanced Docker settings
+    const hostConfig = {
+        PortBindings: portBindings,
+        Binds: binds,
+        RestartPolicy: { Name: dockerConfig.restartPolicy || 'unless-stopped' },
+    };
+
+    // Network mode (bridge, host, none, or custom network name)
+    if (dockerConfig.networkMode === 'custom' && dockerConfig.networkName) {
+        hostConfig.NetworkMode = dockerConfig.networkName;
+    } else if (dockerConfig.networkMode) {
+        hostConfig.NetworkMode = dockerConfig.networkMode;
+    }
+
+    // Resource limits
+    if (dockerConfig.memory) {
+        const memBytes = parseInt(dockerConfig.memory) * 1024 * 1024; // Convert MB to bytes
+        if (!isNaN(memBytes)) hostConfig.Memory = memBytes;
+    }
+    if (dockerConfig.cpu) {
+        const cpuPeriod = 100000;
+        const cpuQuota = Math.floor(parseFloat(dockerConfig.cpu) * cpuPeriod);
+        if (!isNaN(cpuQuota)) {
+            hostConfig.CpuPeriod = cpuPeriod;
+            hostConfig.CpuQuota = cpuQuota;
+        }
+    }
+
+    // Privileged mode
+    if (dockerConfig.privileged) {
+        hostConfig.Privileged = true;
+    }
+
+    // Linux capabilities
+    if (dockerConfig.caps && dockerConfig.caps.length > 0) {
+        hostConfig.CapAdd = dockerConfig.caps;
+    }
+
+    // Build container config
+    const containerConfig = {
         Image: imageName,
         name: containerName,
-        Env: Object.entries(environment).map(([key, val]) => `${key}=${val}`),
+        Env: Object.entries(environment).map(([key, val]) => key + '=' + val),
         ExposedPorts: exposedPorts,
-        HostConfig: {
-            PortBindings: portBindings,
-            Binds: binds,
-            RestartPolicy: { Name: 'unless-stopped' },
-        },
-    });
+        HostConfig: hostConfig,
+    };
 
+    // Hostname
+    if (dockerConfig.hostname) {
+        containerConfig.Hostname = dockerConfig.hostname;
+    }
+
+    // TTY and interactive mode
+    if (dockerConfig.tty !== false) {
+        containerConfig.Tty = true;
+    }
+    if (dockerConfig.interactive !== false) {
+        containerConfig.OpenStdin = true;
+    }
+
+    const container = await docker.createContainer(containerConfig);
     await container.start();
     return container.id;
 }
@@ -701,8 +757,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         .btn-primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
         .btn-primary:hover { background: linear-gradient(135deg, #2563eb, #7c3aed); }
         .modal { background: rgba(0,0,0,0.7); }
-        .app-icon { width: 56px; height: 56px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
-        .app-icon-cat { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; background: white; padding: 6px; }
+        .app-icon { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
+        .app-icon-cat { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
         input, select, textarea { background: hsl(222 47% 15%); border: 1px solid hsl(217 19% 27%); color: white; }
         input:focus, select:focus, textarea:focus { outline: none; border-color: #3b82f6; }
         .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 0.5rem; }
