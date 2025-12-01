@@ -711,24 +711,81 @@ app.put('/api/settings', requireAuth, (req, res) => {
 app.get('/api/system/stats', requireAuth, async (req, res) => {
     try {
         const { execSync } = require('child_process');
-        let cpu = 0, memory = 0, disk = 0, uptime = '--', dockerReady = false;
+        const fs = require('fs');
+        let cpu = 0, memory = 0, memTotal = 0, memUsed = 0, disk = 0, diskTotal = '', diskUsed = '', uptime = '--', dockerReady = false, network = [];
+        
+        // CPU usage from /proc/stat
         try {
-            cpu = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1", { encoding: 'utf8' }).trim()) || 0;
-        } catch (e) { cpu = Math.floor(Math.random() * 30) + 10; }
+            const stat1 = fs.readFileSync('/proc/stat', 'utf8').split('\\n')[0].split(/\\s+/).slice(1, 8).map(Number);
+            await new Promise(r => setTimeout(r, 100));
+            const stat2 = fs.readFileSync('/proc/stat', 'utf8').split('\\n')[0].split(/\\s+/).slice(1, 8).map(Number);
+            const idle1 = stat1[3], idle2 = stat2[3];
+            const total1 = stat1.reduce((a,b) => a+b, 0), total2 = stat2.reduce((a,b) => a+b, 0);
+            cpu = Math.round(100 * (1 - (idle2 - idle1) / (total2 - total1)));
+        } catch (e) {
+            try { cpu = parseFloat(execSync("grep 'cpu ' /proc/stat | awk '{u=$2+$4; t=$2+$4+$5; print 100*u/t}'", { encoding: 'utf8' })) || 0; } catch(e2) { cpu = 0; }
+        }
+        
+        // Memory from /proc/meminfo
         try {
-            const memInfo = execSync("free | grep Mem | awk '{print ($3/$2)*100}'", { encoding: 'utf8' }).trim();
-            memory = Math.round(parseFloat(memInfo)) || 0;
-        } catch (e) { memory = Math.floor(Math.random() * 50) + 20; }
+            const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+            const total = parseInt(meminfo.match(/MemTotal:\\s+(\\d+)/)[1]) / 1024;
+            const avail = parseInt(meminfo.match(/MemAvailable:\\s+(\\d+)/)[1]) / 1024;
+            memTotal = Math.round(total);
+            memUsed = Math.round(total - avail);
+            memory = Math.round((memUsed / memTotal) * 100);
+        } catch (e) {
+            try {
+                const out = execSync("free -m | grep Mem | awk '{print $2,$3}'", { encoding: 'utf8' }).trim().split(' ');
+                memTotal = parseInt(out[0]) || 0;
+                memUsed = parseInt(out[1]) || 0;
+                memory = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
+            } catch(e2) { memory = 0; }
+        }
+        
+        // Disk usage
         try {
-            disk = parseInt(execSync("df / | tail -1 | awk '{print $5}' | tr -d '%'", { encoding: 'utf8' }).trim()) || 0;
-        } catch (e) { disk = Math.floor(Math.random() * 60) + 20; }
+            const dfOut = execSync("df -h / | tail -1 | awk '{print $2,$3,$5}'", { encoding: 'utf8' }).trim().split(' ');
+            diskTotal = dfOut[0] || '0G';
+            diskUsed = dfOut[1] || '0G';
+            disk = parseInt(dfOut[2]) || 0;
+        } catch (e) { disk = 0; diskTotal = '0G'; diskUsed = '0G'; }
+        
+        // Uptime
         try {
-            uptime = execSync('uptime -p', { encoding: 'utf8' }).trim().replace('up ', '');
-        } catch (e) { uptime = '--'; }
+            const uptimeSec = parseFloat(fs.readFileSync('/proc/uptime', 'utf8').split(' ')[0]);
+            const days = Math.floor(uptimeSec / 86400);
+            const hours = Math.floor((uptimeSec % 86400) / 3600);
+            const mins = Math.floor((uptimeSec % 3600) / 60);
+            uptime = days > 0 ? days + 'd ' + hours + 'h' : hours + 'h ' + mins + 'm';
+        } catch (e) {
+            try { uptime = execSync('uptime -p', { encoding: 'utf8' }).trim().replace('up ', ''); } catch(e2) { uptime = '--'; }
+        }
+        
+        // Network interfaces
+        try {
+            const netDev = fs.readFileSync('/proc/net/dev', 'utf8').split('\\n').slice(2);
+            network = netDev.filter(l => l.trim() && !l.includes('lo:')).map(line => {
+                const parts = line.trim().split(/[:\\s]+/);
+                return { iface: parts[0], rx: parseInt(parts[1]) || 0, tx: parseInt(parts[9]) || 0 };
+            }).slice(0, 5);
+        } catch (e) { network = []; }
+        
         dockerReady = await docker.isDockerAvailable();
-        res.json({ cpu: Math.round(cpu), memory, disk, uptime, dockerReady, dockerStatus: dockerReady ? 'Running' : 'Not Available' });
+        res.json({ 
+            cpu: Math.max(0, Math.min(100, cpu)), 
+            memory: Math.max(0, Math.min(100, memory)), 
+            memTotal, memUsed,
+            disk: Math.max(0, Math.min(100, disk)), 
+            diskTotal, diskUsed,
+            uptime, 
+            network,
+            dockerReady, 
+            dockerStatus: dockerReady ? 'Running' : 'Not Available' 
+        });
     } catch (error) {
-        res.json({ cpu: 0, memory: 0, disk: 0, uptime: '--', dockerReady: false, dockerStatus: 'Error' });
+        console.error('Stats error:', error);
+        res.json({ cpu: 0, memory: 0, memTotal: 0, memUsed: 0, disk: 0, diskTotal: '0G', diskUsed: '0G', uptime: '--', network: [], dockerReady: false, dockerStatus: 'Error' });
     }
 });
 
@@ -736,33 +793,56 @@ app.get('/api/system/stats', requireAuth, async (req, res) => {
 app.get('/api/system/storage', requireAuth, async (req, res) => {
     try {
         const { execSync } = require('child_process');
-        let disks = [], zfs = [], volumes = [];
-        // Disk usage
+        const fs = require('fs');
+        let disks = [], blockDevices = [], zfs = [], volumes = [];
+        
+        // Get mounted filesystems
         try {
-            const dfOutput = execSync("df -h --output=target,size,used,pcent | grep -E '^/' | head -5", { encoding: 'utf8' });
-            disks = dfOutput.trim().split('\n').map(line => {
-                const parts = line.trim().split(/\s+/);
-                return { mount: parts[0], size: parts[1], used: parts[2], percent: parts[3] };
+            const dfOutput = execSync("df -h -T 2>/dev/null | grep -E '^/dev' | head -10", { encoding: 'utf8' });
+            disks = dfOutput.trim().split('\\n').filter(l => l).map(line => {
+                const parts = line.trim().split(/\\s+/);
+                return { device: parts[0], fstype: parts[1], size: parts[2], used: parts[3], avail: parts[4], percent: parts[5], mount: parts[6] };
+            });
+        } catch (e) {
+            try {
+                const dfOutput = execSync("df -h 2>/dev/null | grep -E '^/dev' | head -10", { encoding: 'utf8' });
+                disks = dfOutput.trim().split('\\n').filter(l => l).map(line => {
+                    const parts = line.trim().split(/\\s+/);
+                    return { device: parts[0], size: parts[1], used: parts[2], avail: parts[3], percent: parts[4], mount: parts[5] };
+                });
+            } catch (e2) {}
+        }
+        
+        // Get block devices (physical disks)
+        try {
+            const lsblkOutput = execSync("lsblk -d -o NAME,SIZE,TYPE,MODEL -n 2>/dev/null | head -10", { encoding: 'utf8' });
+            blockDevices = lsblkOutput.trim().split('\\n').filter(l => l).map(line => {
+                const parts = line.trim().split(/\\s+/);
+                return { name: parts[0], size: parts[1], type: parts[2], model: parts.slice(3).join(' ') || 'Unknown' };
             });
         } catch (e) {}
+        
         // ZFS pools
         try {
             const zpoolOutput = execSync("zpool list -H -o name,size,alloc,cap,health 2>/dev/null || echo ''", { encoding: 'utf8' });
             if (zpoolOutput.trim()) {
-                zfs = zpoolOutput.trim().split('\n').filter(l => l).map(line => {
-                    const parts = line.trim().split(/\s+/);
+                zfs = zpoolOutput.trim().split('\\n').filter(l => l).map(line => {
+                    const parts = line.trim().split(/\\s+/);
                     return { name: parts[0], size: parts[1], used: parts[2], capacity: parts[3], health: parts[4] };
                 });
             }
         } catch (e) {}
+        
         // Docker volumes
         try {
             const dockerVolumes = await docker.listVolumes();
             volumes = (dockerVolumes.Volumes || []).slice(0, 20).map(v => ({ name: v.Name, driver: v.Driver }));
         } catch (e) {}
-        res.json({ disks, zfs, volumes });
+        
+        res.json({ disks, blockDevices, zfs, volumes });
     } catch (error) {
-        res.json({ disks: [], zfs: [], volumes: [] });
+        console.error('Storage error:', error);
+        res.json({ disks: [], blockDevices: [], zfs: [], volumes: [] });
     }
 });
 
@@ -966,10 +1046,11 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                             <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Disk</span><span id="stat-disk">0%</span></div>
                             <div class="h-1.5 bg-white/10 rounded-full"><div id="stat-disk-bar" class="h-full bg-green-500 rounded-full transition-all" style="width:0%"></div></div>
                         </div>
-                        <div class="text-xs text-gray-500 pt-2">
+                        <div class="text-xs text-gray-500 pt-2 space-y-1">
                             <div class="flex justify-between"><span>Uptime</span><span id="stat-uptime">--</span></div>
                             <div class="flex justify-between"><span>Docker</span><span id="stat-docker" class="text-green-400">Ready</span></div>
                         </div>
+                        <div id="stat-network" class="pt-2 border-t border-white/5 mt-2"></div>
                     </div>
                 </div>
                 <!-- User -->
@@ -1275,14 +1356,28 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 const stats = await res.json();
                 document.getElementById('stat-cpu').textContent = stats.cpu + '%';
                 document.getElementById('stat-cpu-bar').style.width = stats.cpu + '%';
-                document.getElementById('stat-mem').textContent = stats.memory + '%';
+                const memText = stats.memTotal ? (stats.memUsed + ' / ' + stats.memTotal + ' MB') : (stats.memory + '%');
+                document.getElementById('stat-mem').textContent = memText;
                 document.getElementById('stat-mem-bar').style.width = stats.memory + '%';
-                document.getElementById('stat-disk').textContent = stats.disk + '%';
+                const diskText = stats.diskTotal ? (stats.diskUsed + ' / ' + stats.diskTotal) : (stats.disk + '%');
+                document.getElementById('stat-disk').textContent = diskText;
                 document.getElementById('stat-disk-bar').style.width = stats.disk + '%';
                 document.getElementById('stat-uptime').textContent = stats.uptime || '--';
                 document.getElementById('stat-docker').textContent = stats.dockerStatus || 'Unknown';
                 document.getElementById('stat-docker').className = stats.dockerReady ? 'text-green-400' : 'text-red-400';
+                // Network stats
+                const netEl = document.getElementById('stat-network');
+                if (netEl && stats.network && stats.network.length > 0) {
+                    netEl.innerHTML = stats.network.map(n => '<div class="text-xs text-gray-400">' + n.iface + ': ' + formatBytes(n.rx) + ' / ' + formatBytes(n.tx) + '</div>').join('');
+                }
             } catch (err) { console.error('Failed to load stats:', err); }
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+            return (bytes / 1073741824).toFixed(1) + ' GB';
         }
 
         // Storage Info
@@ -1290,13 +1385,28 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             try {
                 const res = await fetch('/api/system/storage', { credentials: 'include' });
                 const data = await res.json();
-                // Disk Usage
-                document.getElementById('disk-usage').innerHTML = (data.disks || []).map(d => `
-                    <div class="p-3 bg-white/5 rounded-lg">
-                        <div class="flex justify-between text-sm mb-2"><span>${d.mount}</span><span>${d.used} / ${d.size}</span></div>
-                        <div class="h-2 bg-white/10 rounded-full"><div class="h-full bg-blue-500 rounded-full" style="width:${d.percent}"></div></div>
-                    </div>
-                `).join('') || '<p class="text-gray-400 text-sm">No disk info available</p>';
+                // Disk Usage (mounted partitions)
+                let diskHtml = '';
+                if (data.disks && data.disks.length > 0) {
+                    diskHtml = data.disks.map(d => `
+                        <div class="p-3 bg-white/5 rounded-lg">
+                            <div class="flex justify-between text-sm mb-1"><span class="font-medium">${d.mount || d.device}</span><span>${d.used} / ${d.size}</span></div>
+                            <div class="text-xs text-gray-400 mb-2">${d.device || ''} ${d.fstype ? '(' + d.fstype + ')' : ''}</div>
+                            <div class="h-2 bg-white/10 rounded-full"><div class="h-full bg-blue-500 rounded-full" style="width:${d.percent}"></div></div>
+                        </div>
+                    `).join('');
+                }
+                // Block devices (physical disks)
+                if (data.blockDevices && data.blockDevices.length > 0) {
+                    diskHtml += '<div class="mt-4 pt-3 border-t border-white/10"><p class="text-xs text-gray-500 mb-2">Physical Disks</p>';
+                    diskHtml += data.blockDevices.map(b => `
+                        <div class="flex justify-between items-center p-2 bg-white/5 rounded-lg text-sm mb-2">
+                            <span class="font-medium">/dev/${b.name}</span>
+                            <span class="text-gray-400">${b.size} - ${b.model}</span>
+                        </div>
+                    `).join('') + '</div>';
+                }
+                document.getElementById('disk-usage').innerHTML = diskHtml || '<p class="text-gray-400 text-sm">No disk info available</p>';
                 // ZFS Pools
                 if (data.zfs && data.zfs.length > 0) {
                     document.getElementById('zfs-pools').innerHTML = data.zfs.map(z => `
