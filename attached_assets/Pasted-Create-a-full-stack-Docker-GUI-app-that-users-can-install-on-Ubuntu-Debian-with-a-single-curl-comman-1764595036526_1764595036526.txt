@@ -1,0 +1,41 @@
+Create a full-stack Docker GUI app that users can install on Ubuntu/Debian with a single curl command. The project must include:
+
+1. **Repository Structure**:
+   - `/backend` → Node.js backend using Dockerode to manage Docker containers (list, pull, start, stop, remove containers and images). Backend runs on port 3001.
+   - `/frontend` → React frontend that shows available Docker apps, running containers, allows users to pull images, start/stop containers, and view logs. Frontend runs on port 8080 using `serve`.
+   - `install.sh` → One-line installer script that:
+     - Installs Docker, Node.js, and npm.
+     - Adds the current user to the Docker group.
+     - Clones the repo to `/opt/docker-gui`.
+     - Installs backend dependencies and sets up a systemd service for the backend.
+     - Builds frontend and sets up a systemd service to serve the frontend via `serve`.
+     - Outputs backend URL (`http://localhost:3001`) and frontend URL (`http://localhost:8080`) after installation.
+
+2. **Backend Requirements**:
+   - Use Dockerode to manage Docker.
+   - Expose REST API endpoints:
+     - `GET /containers`
+     - `GET /images`
+     - `POST /pull` → pull Docker image
+     - `POST /containers` → create/start container
+     - `POST /containers/:id/start`
+     - `POST /containers/:id/stop`
+     - `DELETE /containers/:id`
+   - Use Express.js.
+
+3. **Frontend Requirements**:
+   - React-based GUI.
+   - Display list of containers and images.
+   - Pull new images by entering the image name.
+   - Start/stop/remove containers with buttons.
+   - Use Axios to call the backend API.
+
+4. **Installer Script** (`install.sh`) Requirements:
+   - Must be runnable with `curl -sSL <URL> | bash`.
+   - Installs all dependencies automatically.
+   - Sets up backend and frontend as systemd services so they run on boot.
+   - No Nginx required; frontend is served via Node (`serve -s build -l 8080`).
+
+5. **Output**:
+   - A fully working repository with backend, frontend, and installer ready to push to GitHub.
+   - Make sure all paths, ports, and commands work on Ubuntu/Debian.
