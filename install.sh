@@ -526,7 +526,7 @@ app.get('/api/apps', requireAuth, (req, res) => {
 
 app.post('/api/apps', requireAuth, async (req, res) => {
     try {
-        const { id, name, description, category, image, iconColor, ports, environment, volumes } = req.body;
+        const { id, name, description, category, image, iconUrl, ports, environment, volumes } = req.body;
         
         const dockerAvailable = await docker.isDockerAvailable();
         let containerId = null;
@@ -535,7 +535,7 @@ app.post('/api/apps', requireAuth, async (req, res) => {
         if (dockerAvailable) {
             try {
                 await docker.pullImage(image);
-                containerId = await docker.createAndStartContainer(image, name, ports || [], environment || {}, volumes || []);
+                containerId = await docker.createAndStartContainer(image, name.toLowerCase().replace(/\s+/g, '-'), ports || [], environment || {}, volumes || []);
                 status = 'running';
             } catch (err) {
                 console.error('Docker operation failed:', err);
@@ -547,10 +547,10 @@ app.post('/api/apps', requireAuth, async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
-        stmt.run(id, name, description, category, image, iconColor, containerId, status,
+        stmt.run(id, name, description || '', category || 'App', image, iconUrl || '', containerId, status,
             JSON.stringify(ports || []), JSON.stringify(environment || {}), JSON.stringify(volumes || []));
 
-        res.json({ id, name, description, category, image, iconColor, containerId, status, ports, environment, volumes });
+        res.json({ id, name, description, category, image, iconUrl, containerId, status, ports, environment, volumes });
     } catch (error) {
         console.error('Install error:', error);
         res.status(500).json({ error: 'Failed to install app' });
@@ -682,18 +682,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
     <script>
         tailwind.config = {
             darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        background: 'hsl(222 47% 11%)',
-                        foreground: 'hsl(210 40% 98%)',
-                        card: 'hsl(222 47% 13%)',
-                        primary: 'hsl(217 91% 60%)',
-                        muted: 'hsl(217 19% 20%)',
-                        border: 'hsl(217 19% 27%)',
-                    }
-                }
-            }
+            theme: { extend: { colors: { background: 'hsl(222 47% 11%)', foreground: 'hsl(210 40% 98%)', card: 'hsl(222 47% 13%)', primary: 'hsl(217 91% 60%)', muted: 'hsl(217 19% 20%)', border: 'hsl(217 19% 27%)' } } }
         }
     </script>
     <style>
@@ -701,6 +690,11 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         .card { background: hsl(222 47% 13% / 0.4); border: 1px solid hsl(217 19% 27% / 0.5); backdrop-filter: blur(12px); }
         .btn-primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
         .btn-primary:hover { background: linear-gradient(135deg, #2563eb, #7c3aed); }
+        .modal { background: rgba(0,0,0,0.7); }
+        .app-icon { width: 48px; height: 48px; border-radius: 12px; object-fit: contain; background: white; padding: 6px; }
+        .app-icon-sm { width: 32px; height: 32px; border-radius: 8px; object-fit: contain; background: white; padding: 4px; }
+        input, select, textarea { background: hsl(222 47% 15%); border: 1px solid hsl(217 19% 27%); color: white; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #3b82f6; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -708,25 +702,14 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
     <div id="setup-page" class="hidden min-h-screen flex items-center justify-center p-4">
         <div class="card rounded-2xl p-8 w-full max-w-md text-center">
             <div class="w-16 h-16 mx-auto mb-6 rounded-2xl btn-primary flex items-center justify-center">
-                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
             <h1 class="text-2xl font-bold mb-2">Welcome to DockPilot</h1>
             <p class="text-gray-400 mb-6">Create your admin account to get started</p>
             <form id="setup-form" class="space-y-4 text-left">
-                <div>
-                    <label class="block text-sm mb-2">Username</label>
-                    <input type="text" id="setup-username" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="admin">
-                </div>
-                <div>
-                    <label class="block text-sm mb-2">Password</label>
-                    <input type="password" id="setup-password" required minlength="6" class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="Min 6 characters">
-                </div>
-                <div>
-                    <label class="block text-sm mb-2">Confirm Password</label>
-                    <input type="password" id="setup-confirm" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none" placeholder="Confirm password">
-                </div>
+                <div><label class="block text-sm mb-2">Username</label><input type="text" id="setup-username" required class="w-full px-4 py-3 rounded-xl" placeholder="admin"></div>
+                <div><label class="block text-sm mb-2">Password</label><input type="password" id="setup-password" required minlength="6" class="w-full px-4 py-3 rounded-xl" placeholder="Min 6 characters"></div>
+                <div><label class="block text-sm mb-2">Confirm Password</label><input type="password" id="setup-confirm" required class="w-full px-4 py-3 rounded-xl" placeholder="Confirm password"></div>
                 <div id="setup-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
                 <button type="submit" class="w-full py-3 rounded-xl btn-primary text-white font-medium">Create Account</button>
             </form>
@@ -737,21 +720,13 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
     <div id="login-page" class="hidden min-h-screen flex items-center justify-center p-4">
         <div class="card rounded-2xl p-8 w-full max-w-md text-center">
             <div class="w-16 h-16 mx-auto mb-6 rounded-2xl btn-primary flex items-center justify-center">
-                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
             <h1 class="text-2xl font-bold mb-2">Welcome Back</h1>
             <p class="text-gray-400 mb-6">Sign in to your DockPilot dashboard</p>
             <form id="login-form" class="space-y-4 text-left">
-                <div>
-                    <label class="block text-sm mb-2">Username</label>
-                    <input type="text" id="login-username" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-sm mb-2">Password</label>
-                    <input type="password" id="login-password" required class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-blue-500 focus:outline-none">
-                </div>
+                <div><label class="block text-sm mb-2">Username</label><input type="text" id="login-username" required class="w-full px-4 py-3 rounded-xl"></div>
+                <div><label class="block text-sm mb-2">Password</label><input type="password" id="login-password" required class="w-full px-4 py-3 rounded-xl"></div>
                 <div id="login-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
                 <button type="submit" class="w-full py-3 rounded-xl btn-primary text-white font-medium">Sign In</button>
             </form>
@@ -761,7 +736,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
     <!-- Dashboard -->
     <div id="dashboard" class="hidden">
         <nav class="border-b border-white/10 px-4 py-3">
-            <div class="container mx-auto max-w-6xl flex justify-between items-center">
+            <div class="container mx-auto max-w-7xl flex justify-between items-center">
                 <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">DockPilot</h1>
                 <div class="flex items-center gap-4">
                     <span id="user-display" class="text-gray-400 text-sm"></span>
@@ -769,66 +744,148 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 </div>
             </div>
         </nav>
-        <div class="container mx-auto px-4 py-8 max-w-6xl">
-            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8" id="apps-grid">
-                <div class="card rounded-2xl p-6 text-center">
-                    <div class="text-4xl mb-4">⏳</div>
-                    <p class="text-gray-400">Loading apps...</p>
-                </div>
+        <div class="container mx-auto px-4 py-8 max-w-7xl">
+            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-8" id="apps-grid">
+                <div class="card rounded-2xl p-6 text-center"><div class="text-4xl mb-4">⏳</div><p class="text-gray-400">Loading apps...</p></div>
             </div>
             <div class="card rounded-2xl p-6 mb-6">
-                <h2 class="text-xl font-bold mb-4">Install New App</h2>
-                <div class="grid gap-4 md:grid-cols-4 lg:grid-cols-6" id="catalog"></div>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">App Store</h2>
+                    <button onclick="showCustomInstall()" class="px-4 py-2 rounded-lg btn-primary text-white text-sm">+ Custom App</button>
+                </div>
+                <div class="flex gap-2 mb-4 flex-wrap" id="category-tabs"></div>
+                <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8" id="catalog"></div>
             </div>
             <div class="card rounded-2xl p-6">
-                <h2 class="text-xl font-bold mb-4">Running Containers</h2>
+                <h2 class="text-xl font-bold mb-4">Docker Containers</h2>
                 <div id="containers" class="space-y-2"></div>
             </div>
         </div>
     </div>
 
+    <!-- Install Modal -->
+    <div id="install-modal" class="hidden fixed inset-0 modal flex items-center justify-center p-4 z-50">
+        <div class="card rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex items-center gap-3">
+                    <img id="modal-icon" class="app-icon" src="" alt="">
+                    <div><h3 id="modal-title" class="text-xl font-bold"></h3><p id="modal-desc" class="text-sm text-gray-400"></p></div>
+                </div>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <form id="install-form" class="space-y-4">
+                <div><label class="block text-sm mb-2">Container Name</label><input type="text" id="modal-name" required class="w-full px-4 py-2 rounded-lg"></div>
+                <div><label class="block text-sm mb-2">Docker Image</label><input type="text" id="modal-image" required class="w-full px-4 py-2 rounded-lg"></div>
+                <div>
+                    <label class="block text-sm mb-2">Port Mappings <span class="text-gray-500">(host:container)</span></label>
+                    <div id="modal-ports" class="space-y-2"></div>
+                    <button type="button" onclick="addPort()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Port</button>
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Environment Variables</label>
+                    <div id="modal-env" class="space-y-2"></div>
+                    <button type="button" onclick="addEnv()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Variable</button>
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Volume Mounts <span class="text-gray-500">(host:container)</span></label>
+                    <div id="modal-volumes" class="space-y-2"></div>
+                    <button type="button" onclick="addVolume()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Volume</button>
+                </div>
+                <div id="modal-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
+                <div class="flex gap-3">
+                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20">Cancel</button>
+                    <button type="submit" id="modal-submit" class="flex-1 py-3 rounded-xl btn-primary text-white">Install</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         let currentUser = null;
+        let currentApp = null;
+        let selectedCategory = 'all';
 
         const APP_CATALOG = [
-            { id: 'plex', name: 'Plex', image: 'plexinc/pms-docker:latest', icon: '🎬', ports: [{ container: 32400, host: 32400 }] },
-            { id: 'jellyfin', name: 'Jellyfin', image: 'jellyfin/jellyfin:latest', icon: '🎥', ports: [{ container: 8096, host: 8096 }] },
-            { id: 'pihole', name: 'Pi-hole', image: 'pihole/pihole:latest', icon: '🛡️', ports: [{ container: 80, host: 8053 }] },
-            { id: 'homeassistant', name: 'Home Assistant', image: 'homeassistant/home-assistant:stable', icon: '🏠', ports: [{ container: 8123, host: 8123 }] },
-            { id: 'nextcloud', name: 'Nextcloud', image: 'nextcloud:latest', icon: '☁️', ports: [{ container: 80, host: 8082 }] },
-            { id: 'portainer', name: 'Portainer', image: 'portainer/portainer-ce:latest', icon: '🐳', ports: [{ container: 9000, host: 9000 }] },
-            { id: 'nodered', name: 'Node-RED', image: 'nodered/node-red:latest', icon: '🔴', ports: [{ container: 1880, host: 1880 }] },
-            { id: 'qbittorrent', name: 'qBittorrent', image: 'linuxserver/qbittorrent:latest', icon: '📥', ports: [{ container: 8080, host: 8090 }] },
-            { id: 'transmission', name: 'Transmission', image: 'linuxserver/transmission:latest', icon: '⬇️', ports: [{ container: 9091, host: 9091 }] },
-            { id: 'grafana', name: 'Grafana', image: 'grafana/grafana:latest', icon: '📊', ports: [{ container: 3000, host: 3000 }] },
-            { id: 'nginx-proxy', name: 'Nginx Proxy Manager', image: 'jc21/nginx-proxy-manager:latest', icon: '🌐', ports: [{ container: 81, host: 81 }] },
-            { id: 'vaultwarden', name: 'Vaultwarden', image: 'vaultwarden/server:latest', icon: '🔐', ports: [{ container: 80, host: 8084 }] },
-            { id: 'syncthing', name: 'Syncthing', image: 'syncthing/syncthing:latest', icon: '🔄', ports: [{ container: 8384, host: 8384 }] },
+            // Media
+            { id: 'plex', name: 'Plex', category: 'Media', image: 'plexinc/pms-docker:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/plex.png', ports: [{c:32400,h:32400}], desc: 'Media server' },
+            { id: 'jellyfin', name: 'Jellyfin', category: 'Media', image: 'jellyfin/jellyfin:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png', ports: [{c:8096,h:8096}], desc: 'Free media system' },
+            { id: 'emby', name: 'Emby', category: 'Media', image: 'emby/embyserver:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/emby.png', ports: [{c:8096,h:8097}], desc: 'Media server' },
+            { id: 'sonarr', name: 'Sonarr', category: 'Media', image: 'linuxserver/sonarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/sonarr.png', ports: [{c:8989,h:8989}], desc: 'TV show manager' },
+            { id: 'radarr', name: 'Radarr', category: 'Media', image: 'linuxserver/radarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/radarr.png', ports: [{c:7878,h:7878}], desc: 'Movie manager' },
+            { id: 'lidarr', name: 'Lidarr', category: 'Media', image: 'linuxserver/lidarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/lidarr.png', ports: [{c:8686,h:8686}], desc: 'Music manager' },
+            { id: 'bazarr', name: 'Bazarr', category: 'Media', image: 'linuxserver/bazarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/bazarr.png', ports: [{c:6767,h:6767}], desc: 'Subtitle manager' },
+            { id: 'overseerr', name: 'Overseerr', category: 'Media', image: 'linuxserver/overseerr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/overseerr.png', ports: [{c:5055,h:5055}], desc: 'Request management' },
+            { id: 'tautulli', name: 'Tautulli', category: 'Media', image: 'linuxserver/tautulli:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tautulli.png', ports: [{c:8181,h:8181}], desc: 'Plex monitoring' },
+            // Downloads
+            { id: 'qbittorrent', name: 'qBittorrent', category: 'Downloads', image: 'linuxserver/qbittorrent:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/qbittorrent.png', ports: [{c:8080,h:8090}], desc: 'Torrent client' },
+            { id: 'transmission', name: 'Transmission', category: 'Downloads', image: 'linuxserver/transmission:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/transmission.png', ports: [{c:9091,h:9091}], desc: 'Torrent client' },
+            { id: 'deluge', name: 'Deluge', category: 'Downloads', image: 'linuxserver/deluge:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/deluge.png', ports: [{c:8112,h:8112}], desc: 'Torrent client' },
+            { id: 'sabnzbd', name: 'SABnzbd', category: 'Downloads', image: 'linuxserver/sabnzbd:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/sabnzbd.png', ports: [{c:8080,h:8085}], desc: 'Usenet downloader' },
+            { id: 'nzbget', name: 'NZBGet', category: 'Downloads', image: 'linuxserver/nzbget:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/nzbget.png', ports: [{c:6789,h:6789}], desc: 'Usenet downloader' },
+            { id: 'prowlarr', name: 'Prowlarr', category: 'Downloads', image: 'linuxserver/prowlarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/prowlarr.png', ports: [{c:9696,h:9696}], desc: 'Indexer manager' },
+            // Cloud & Files
+            { id: 'nextcloud', name: 'Nextcloud', category: 'Cloud', image: 'nextcloud:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/nextcloud.png', ports: [{c:80,h:8082}], desc: 'Personal cloud' },
+            { id: 'syncthing', name: 'Syncthing', category: 'Cloud', image: 'syncthing/syncthing:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/syncthing.png', ports: [{c:8384,h:8384}], desc: 'File sync' },
+            { id: 'filebrowser', name: 'FileBrowser', category: 'Cloud', image: 'filebrowser/filebrowser:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/filebrowser.png', ports: [{c:80,h:8086}], desc: 'Web file manager' },
+            { id: 'duplicati', name: 'Duplicati', category: 'Cloud', image: 'linuxserver/duplicati:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/duplicati.png', ports: [{c:8200,h:8200}], desc: 'Backup solution' },
+            // Network & Security
+            { id: 'pihole', name: 'Pi-hole', category: 'Network', image: 'pihole/pihole:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/pi-hole.png', ports: [{c:80,h:8053}], desc: 'Ad blocker DNS' },
+            { id: 'adguard', name: 'AdGuard Home', category: 'Network', image: 'adguard/adguardhome:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/adguard-home.png', ports: [{c:3000,h:3003}], desc: 'Ad blocker DNS' },
+            { id: 'nginx-proxy', name: 'Nginx Proxy Manager', category: 'Network', image: 'jc21/nginx-proxy-manager:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/nginx-proxy-manager.png', ports: [{c:81,h:81}], desc: 'Reverse proxy' },
+            { id: 'traefik', name: 'Traefik', category: 'Network', image: 'traefik:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/traefik.png', ports: [{c:8080,h:8180}], desc: 'Reverse proxy' },
+            { id: 'wireguard', name: 'WireGuard', category: 'Network', image: 'linuxserver/wireguard:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/wireguard.png', ports: [{c:51820,h:51820}], desc: 'VPN server' },
+            { id: 'tailscale', name: 'Tailscale', category: 'Network', image: 'tailscale/tailscale:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tailscale.png', ports: [], desc: 'Mesh VPN' },
+            { id: 'vaultwarden', name: 'Vaultwarden', category: 'Network', image: 'vaultwarden/server:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/vaultwarden.png', ports: [{c:80,h:8084}], desc: 'Password manager' },
+            { id: 'authelia', name: 'Authelia', category: 'Network', image: 'authelia/authelia:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/authelia.png', ports: [{c:9091,h:9092}], desc: 'SSO & 2FA' },
+            // Home Automation
+            { id: 'homeassistant', name: 'Home Assistant', category: 'Home', image: 'homeassistant/home-assistant:stable', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/home-assistant.png', ports: [{c:8123,h:8123}], desc: 'Home automation' },
+            { id: 'nodered', name: 'Node-RED', category: 'Home', image: 'nodered/node-red:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/node-red.png', ports: [{c:1880,h:1880}], desc: 'Flow automation' },
+            { id: 'mqtt', name: 'Mosquitto', category: 'Home', image: 'eclipse-mosquitto:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mqtt.png', ports: [{c:1883,h:1883}], desc: 'MQTT broker' },
+            { id: 'zigbee2mqtt', name: 'Zigbee2MQTT', category: 'Home', image: 'koenkk/zigbee2mqtt:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/zigbee2mqtt.png', ports: [{c:8080,h:8088}], desc: 'Zigbee bridge' },
+            // Monitoring
+            { id: 'grafana', name: 'Grafana', category: 'Monitor', image: 'grafana/grafana:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/grafana.png', ports: [{c:3000,h:3000}], desc: 'Dashboards' },
+            { id: 'prometheus', name: 'Prometheus', category: 'Monitor', image: 'prom/prometheus:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/prometheus.png', ports: [{c:9090,h:9090}], desc: 'Metrics database' },
+            { id: 'influxdb', name: 'InfluxDB', category: 'Monitor', image: 'influxdb:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/influxdb.png', ports: [{c:8086,h:8087}], desc: 'Time series DB' },
+            { id: 'uptime-kuma', name: 'Uptime Kuma', category: 'Monitor', image: 'louislam/uptime-kuma:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/uptime-kuma.png', ports: [{c:3001,h:3001}], desc: 'Status monitor' },
+            { id: 'netdata', name: 'Netdata', category: 'Monitor', image: 'netdata/netdata:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/netdata.png', ports: [{c:19999,h:19999}], desc: 'Real-time monitor' },
+            // Development & Tools
+            { id: 'portainer', name: 'Portainer', category: 'Tools', image: 'portainer/portainer-ce:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/portainer.png', ports: [{c:9000,h:9000}], desc: 'Docker management' },
+            { id: 'gitea', name: 'Gitea', category: 'Tools', image: 'gitea/gitea:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/gitea.png', ports: [{c:3000,h:3002}], desc: 'Git server' },
+            { id: 'jenkins', name: 'Jenkins', category: 'Tools', image: 'jenkins/jenkins:lts', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jenkins.png', ports: [{c:8080,h:8089}], desc: 'CI/CD server' },
+            { id: 'code-server', name: 'Code Server', category: 'Tools', image: 'linuxserver/code-server:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/code.png', ports: [{c:8443,h:8443}], desc: 'VS Code in browser' },
+            // Databases
+            { id: 'mariadb', name: 'MariaDB', category: 'Database', image: 'mariadb:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mariadb.png', ports: [{c:3306,h:3306}], desc: 'MySQL database' },
+            { id: 'postgres', name: 'PostgreSQL', category: 'Database', image: 'postgres:16', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/postgres.png', ports: [{c:5432,h:5432}], desc: 'PostgreSQL DB' },
+            { id: 'redis', name: 'Redis', category: 'Database', image: 'redis:alpine', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/redis.png', ports: [{c:6379,h:6379}], desc: 'In-memory cache' },
+            { id: 'mongodb', name: 'MongoDB', category: 'Database', image: 'mongo:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mongodb.png', ports: [{c:27017,h:27017}], desc: 'NoSQL database' },
+            // Other
+            { id: 'homepage', name: 'Homepage', category: 'Other', image: 'ghcr.io/gethomepage/homepage:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/homepage.png', ports: [{c:3000,h:3004}], desc: 'Dashboard' },
+            { id: 'homarr', name: 'Homarr', category: 'Other', image: 'ghcr.io/ajnart/homarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/homarr.png', ports: [{c:7575,h:7575}], desc: 'Dashboard' },
+            { id: 'watchtower', name: 'Watchtower', category: 'Other', image: 'containrrr/watchtower:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/watchtower.png', ports: [], desc: 'Auto-update containers' },
+            { id: 'dozzle', name: 'Dozzle', category: 'Other', image: 'amir20/dozzle:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/dozzle.png', ports: [{c:8080,h:8081}], desc: 'Docker logs viewer' },
         ];
+
+        const CATEGORIES = ['all', ...new Set(APP_CATALOG.map(a => a.category))];
 
         async function checkAuth() {
             try {
                 const res = await fetch('/api/auth/session', { credentials: 'include' });
                 const data = await res.json();
-                
                 document.getElementById('setup-page').classList.add('hidden');
                 document.getElementById('login-page').classList.add('hidden');
                 document.getElementById('dashboard').classList.add('hidden');
-                
-                if (data.setupRequired) {
-                    document.getElementById('setup-page').classList.remove('hidden');
-                } else if (!data.authenticated) {
-                    document.getElementById('login-page').classList.remove('hidden');
-                } else {
+                if (data.setupRequired) { document.getElementById('setup-page').classList.remove('hidden'); }
+                else if (!data.authenticated) { document.getElementById('login-page').classList.remove('hidden'); }
+                else {
                     currentUser = data.user;
                     document.getElementById('user-display').textContent = data.user.username;
                     document.getElementById('dashboard').classList.remove('hidden');
+                    renderCategories();
+                    renderCatalog();
                     loadApps();
                     loadContainers();
                 }
-            } catch (err) {
-                console.error('Auth check failed:', err);
-            }
+            } catch (err) { console.error('Auth check failed:', err); }
         }
 
         document.getElementById('setup-form').addEventListener('submit', async (e) => {
@@ -837,27 +894,13 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             const password = document.getElementById('setup-password').value;
             const confirm = document.getElementById('setup-confirm').value;
             const errorEl = document.getElementById('setup-error');
-            
-            if (password !== confirm) {
-                errorEl.textContent = 'Passwords do not match';
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            
+            if (password !== confirm) { errorEl.textContent = 'Passwords do not match'; errorEl.classList.remove('hidden'); return; }
             try {
-                const res = await fetch('/api/auth/setup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password }),
-                    credentials: 'include'
-                });
+                const res = await fetch('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }), credentials: 'include' });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
                 checkAuth();
-            } catch (err) {
-                errorEl.textContent = err.message;
-                errorEl.classList.remove('hidden');
-            }
+            } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
         });
 
         document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -865,27 +908,113 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             const username = document.getElementById('login-username').value;
             const password = document.getElementById('login-password').value;
             const errorEl = document.getElementById('login-error');
-            
             try {
-                const res = await fetch('/api/auth/login', {
+                const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }), credentials: 'include' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                checkAuth();
+            } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
+        });
+
+        async function logout() { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); checkAuth(); }
+
+        function renderCategories() {
+            document.getElementById('category-tabs').innerHTML = CATEGORIES.map(cat => 
+                `<button onclick="filterCategory('${cat}')" class="px-4 py-2 rounded-full text-sm ${selectedCategory === cat ? 'btn-primary text-white' : 'bg-white/10 hover:bg-white/20'}">${cat === 'all' ? 'All Apps' : cat}</button>`
+            ).join('');
+        }
+
+        function filterCategory(cat) { selectedCategory = cat; renderCategories(); renderCatalog(); }
+
+        function renderCatalog() {
+            const apps = selectedCategory === 'all' ? APP_CATALOG : APP_CATALOG.filter(a => a.category === selectedCategory);
+            document.getElementById('catalog').innerHTML = apps.map(app => `
+                <button onclick='openInstallModal(${JSON.stringify(app).replace(/'/g, "\\'")})' class="card rounded-xl p-3 text-center hover:bg-white/10 transition flex flex-col items-center">
+                    <img src="${app.iconUrl}" class="app-icon-sm mb-2" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
+                    <div class="font-medium text-xs truncate w-full">${app.name}</div>
+                </button>
+            `).join('');
+        }
+
+        function openInstallModal(app) {
+            currentApp = app;
+            document.getElementById('modal-icon').src = app.iconUrl || 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png';
+            document.getElementById('modal-title').textContent = app.name;
+            document.getElementById('modal-desc').textContent = app.desc || '';
+            document.getElementById('modal-name').value = app.name.toLowerCase().replace(/\s+/g, '-');
+            document.getElementById('modal-image').value = app.image;
+            document.getElementById('modal-ports').innerHTML = '';
+            document.getElementById('modal-env').innerHTML = '';
+            document.getElementById('modal-volumes').innerHTML = '';
+            (app.ports || []).forEach(p => addPort(p.h, p.c));
+            if ((app.ports || []).length === 0) addPort();
+            document.getElementById('modal-error').classList.add('hidden');
+            document.getElementById('modal-submit').textContent = 'Install';
+            document.getElementById('install-modal').classList.remove('hidden');
+        }
+
+        function showCustomInstall() {
+            currentApp = { id: 'custom-' + Date.now(), name: 'Custom App', image: '', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png', ports: [], desc: '' };
+            openInstallModal(currentApp);
+            document.getElementById('modal-name').value = '';
+            document.getElementById('modal-image').value = '';
+        }
+
+        function closeModal() { document.getElementById('install-modal').classList.add('hidden'); currentApp = null; }
+
+        function addPort(host = '', container = '') {
+            const div = document.createElement('div');
+            div.className = 'flex gap-2';
+            div.innerHTML = `<input type="number" placeholder="Host" value="${host}" class="flex-1 px-3 py-2 rounded-lg"><input type="number" placeholder="Container" value="${container}" class="flex-1 px-3 py-2 rounded-lg"><button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-400">&times;</button>`;
+            document.getElementById('modal-ports').appendChild(div);
+        }
+
+        function addEnv(key = '', val = '') {
+            const div = document.createElement('div');
+            div.className = 'flex gap-2';
+            div.innerHTML = `<input type="text" placeholder="KEY" value="${key}" class="flex-1 px-3 py-2 rounded-lg"><input type="text" placeholder="value" value="${val}" class="flex-1 px-3 py-2 rounded-lg"><button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-400">&times;</button>`;
+            document.getElementById('modal-env').appendChild(div);
+        }
+
+        function addVolume(host = '', container = '') {
+            const div = document.createElement('div');
+            div.className = 'flex gap-2';
+            div.innerHTML = `<input type="text" placeholder="/host/path" value="${host}" class="flex-1 px-3 py-2 rounded-lg"><input type="text" placeholder="/container/path" value="${container}" class="flex-1 px-3 py-2 rounded-lg"><button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-400">&times;</button>`;
+            document.getElementById('modal-volumes').appendChild(div);
+        }
+
+        document.getElementById('install-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errorEl = document.getElementById('modal-error');
+            const name = document.getElementById('modal-name').value;
+            const image = document.getElementById('modal-image').value;
+            const ports = [...document.getElementById('modal-ports').querySelectorAll('div')].map(d => {
+                const inputs = d.querySelectorAll('input');
+                return { host: parseInt(inputs[0].value) || 0, container: parseInt(inputs[1].value) || 0 };
+            }).filter(p => p.host && p.container);
+            const environment = {};
+            [...document.getElementById('modal-env').querySelectorAll('div')].forEach(d => {
+                const inputs = d.querySelectorAll('input');
+                if (inputs[0].value) environment[inputs[0].value] = inputs[1].value || '';
+            });
+            const volumes = [...document.getElementById('modal-volumes').querySelectorAll('div')].map(d => {
+                const inputs = d.querySelectorAll('input');
+                return { host: inputs[0].value, container: inputs[1].value };
+            }).filter(v => v.host && v.container);
+            try {
+                const res = await fetch('/api/apps', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password }),
+                    body: JSON.stringify({ id: currentApp.id || name, name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes }),
                     credentials: 'include'
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
-                checkAuth();
-            } catch (err) {
-                errorEl.textContent = err.message;
-                errorEl.classList.remove('hidden');
-            }
+                closeModal();
+                loadApps();
+                loadContainers();
+            } catch (err) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
         });
-
-        async function logout() {
-            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-            checkAuth();
-        }
 
         async function loadApps() {
             try {
@@ -893,67 +1022,63 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 if (!res.ok) return;
                 const apps = await res.json();
                 const grid = document.getElementById('apps-grid');
-                
                 if (apps.length === 0) {
-                    grid.innerHTML = '<div class="card rounded-2xl p-6 text-center col-span-full"><p class="text-gray-400">No apps installed yet. Install one from the catalog below!</p></div>';
+                    grid.innerHTML = '<div class="card rounded-2xl p-6 text-center col-span-full"><p class="text-gray-400">No apps installed yet. Choose one from the App Store below!</p></div>';
                 } else {
-                    grid.innerHTML = apps.map(app => `
-                        <div class="card rounded-2xl p-6 text-center relative">
+                    grid.innerHTML = apps.map(app => {
+                        const catalogApp = APP_CATALOG.find(a => a.id === app.id || a.name === app.name);
+                        const iconUrl = app.icon_url || (catalogApp ? catalogApp.iconUrl : 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png');
+                        return `
+                        <div class="card rounded-2xl p-5 relative">
                             <div class="absolute top-4 right-4 w-3 h-3 rounded-full ${app.status === 'running' ? 'bg-green-500' : 'bg-red-500'}"></div>
-                            <div class="text-4xl mb-4">${getIcon(app.name)}</div>
-                            <h3 class="font-bold text-lg">${app.name}</h3>
-                            <p class="text-sm text-gray-400 mb-4">${app.status}</p>
-                            <div class="flex gap-2 justify-center">
-                                <button onclick="toggleApp('${app.id}', '${app.container_id}', '${app.status}')" 
-                                    class="px-4 py-2 rounded-full text-sm ${app.status === 'running' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}">
-                                    ${app.status === 'running' ? 'Stop' : 'Start'}
-                                </button>
-                                <button onclick="uninstallApp('${app.id}')" class="px-4 py-2 rounded-full text-sm bg-red-500/20 text-red-400">Remove</button>
+                            <div class="flex items-center gap-3 mb-3">
+                                <img src="${iconUrl}" class="app-icon" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
+                                <div><h3 class="font-bold">${app.name}</h3><p class="text-xs text-gray-400">${app.status}</p></div>
                             </div>
-                        </div>
-                    `).join('');
+                            <div class="flex gap-2">
+                                <button onclick="toggleApp('${app.id}', '${app.container_id}', '${app.status}')" class="flex-1 py-2 rounded-lg text-sm ${app.status === 'running' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}">${app.status === 'running' ? 'Stop' : 'Start'}</button>
+                                <button onclick="editApp('${app.id}')" class="px-3 py-2 rounded-lg text-sm bg-blue-500/20 text-blue-400">Edit</button>
+                                <button onclick="uninstallApp('${app.id}')" class="px-3 py-2 rounded-lg text-sm bg-red-500/20 text-red-400">Remove</button>
+                            </div>
+                        </div>`;
+                    }).join('');
                 }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        function getIcon(name) {
-            const app = APP_CATALOG.find(a => a.name === name);
-            return app ? app.icon : '📦';
-        }
-
-        async function installApp(app) {
-            try {
-                await fetch('/api/apps', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...app, category: 'App', description: '' }),
-                    credentials: 'include'
-                });
-                loadApps();
-                loadContainers();
-            } catch (err) {
-                alert('Failed to install: ' + err.message);
-            }
+            } catch (err) { console.error(err); }
         }
 
         async function toggleApp(id, containerId, status) {
-            if (!containerId) return alert('No container ID');
+            if (!containerId || containerId === 'null') return alert('Container not available (demo mode or not started)');
             const action = status === 'running' ? 'stop' : 'start';
             await fetch(`/api/containers/${containerId}/${action}`, { method: 'POST', credentials: 'include' });
-            await fetch(`/api/apps/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: action === 'start' ? 'running' : 'stopped' }),
-                credentials: 'include'
-            });
+            await fetch(`/api/apps/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: action === 'start' ? 'running' : 'stopped' }), credentials: 'include' });
             loadApps();
             loadContainers();
         }
 
+        async function editApp(id) {
+            const res = await fetch('/api/apps', { credentials: 'include' });
+            const apps = await res.json();
+            const app = apps.find(a => a.id === id);
+            if (!app) return;
+            const catalogApp = APP_CATALOG.find(a => a.id === app.id || a.name === app.name);
+            currentApp = { ...app, iconUrl: app.icon_url || (catalogApp ? catalogApp.iconUrl : '') };
+            document.getElementById('modal-icon').src = currentApp.iconUrl || 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png';
+            document.getElementById('modal-title').textContent = app.name + ' (Edit)';
+            document.getElementById('modal-desc').textContent = 'Modify settings and reinstall';
+            document.getElementById('modal-name').value = app.name;
+            document.getElementById('modal-image').value = app.image;
+            document.getElementById('modal-ports').innerHTML = '';
+            document.getElementById('modal-env').innerHTML = '';
+            document.getElementById('modal-volumes').innerHTML = '';
+            (app.ports || []).forEach(p => addPort(p.host || p.h, p.container || p.c));
+            Object.entries(app.environment || {}).forEach(([k, v]) => addEnv(k, v));
+            (app.volumes || []).forEach(v => addVolume(v.host, v.container));
+            document.getElementById('modal-submit').textContent = 'Save & Reinstall';
+            document.getElementById('install-modal').classList.remove('hidden');
+        }
+
         async function uninstallApp(id) {
-            if (confirm('Remove this app?')) {
+            if (confirm('Remove this app and its container?')) {
                 await fetch(`/api/apps/${id}`, { method: 'DELETE', credentials: 'include' });
                 loadApps();
                 loadContainers();
@@ -967,30 +1092,16 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 const containers = await res.json();
                 document.getElementById('containers').innerHTML = containers.length ? containers.map(c => `
                     <div class="flex items-center justify-between p-3 rounded-lg bg-white/5">
-                        <div>
-                            <span class="font-medium">${c.name}</span>
-                            <span class="text-sm text-gray-400 ml-2">${c.image}</span>
-                        </div>
+                        <div><span class="font-medium">${c.name}</span><span class="text-sm text-gray-400 ml-2">${c.image}</span></div>
                         <span class="px-2 py-1 rounded text-xs ${c.state === 'running' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${c.state}</span>
                     </div>
-                `).join('') : '<p class="text-gray-400">No containers running</p>';
-            } catch (err) {
-                document.getElementById('containers').innerHTML = '<p class="text-red-400">Failed to load containers</p>';
-            }
+                `).join('') : '<p class="text-gray-400">No containers found</p>';
+            } catch (err) { document.getElementById('containers').innerHTML = '<p class="text-red-400">Failed to load containers</p>'; }
         }
 
-        // Render catalog
-        document.getElementById('catalog').innerHTML = APP_CATALOG.map(app => `
-            <button onclick='installApp(${JSON.stringify(app)})' class="card rounded-xl p-4 text-center hover:bg-white/10 transition">
-                <div class="text-2xl mb-2">${app.icon}</div>
-                <div class="font-medium text-sm">${app.name}</div>
-            </button>
-        `).join('');
-
-        // Initial auth check
         checkAuth();
-        setInterval(loadApps, 10000);
-        setInterval(loadContainers, 10000);
+        setInterval(loadApps, 15000);
+        setInterval(loadContainers, 15000);
     </script>
 </body>
 </html>
