@@ -106,6 +106,15 @@ export const APP_CATALOG: AppStoreItem[] = [
     downloads: "12M+"
   },
   {
+    id: "transmission",
+    name: "Transmission",
+    description: "Fast, easy, and free BitTorrent client with a clean interface.",
+    category: "Downloaders",
+    image: "linuxserver/transmission:latest",
+    iconUrl: "https://upload.wikimedia.org/wikipedia/commons/6/6d/Transmission_icon.png",
+    downloads: "15M+"
+  },
+  {
     id: "grafana",
     name: "Grafana",
     description: "The open observability platform for metrics, logs, and traces.",

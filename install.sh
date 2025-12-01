@@ -602,6 +602,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             { id: 'homeassistant', name: 'Home Assistant', image: 'homeassistant/home-assistant:stable', icon: '🏠', ports: [{ container: 8123, host: 8123 }] },
             { id: 'nextcloud', name: 'Nextcloud', image: 'nextcloud:latest', icon: '☁️', ports: [{ container: 80, host: 8082 }] },
             { id: 'grafana', name: 'Grafana', image: 'grafana/grafana:latest', icon: '📊', ports: [{ container: 3000, host: 3000 }] },
+            { id: 'transmission', name: 'Transmission', image: 'linuxserver/transmission:latest', icon: '⬇️', ports: [{ container: 9091, host: 9091 }] },
             { id: 'redis', name: 'Redis', image: 'redis:alpine', icon: '🔴', ports: [{ container: 6379, host: 6379 }] },
             { id: 'postgres', name: 'PostgreSQL', image: 'postgres:16', icon: '🐘', ports: [{ container: 5432, host: 5432 }] },
         ];
@@ -637,7 +638,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         }
 
         function getIcon(name) {
-            const icons = { Portainer: '🐳', Nginx: '🌐', 'Pi-hole': '🛡️', 'Home Assistant': '🏠', Nextcloud: '☁️', Grafana: '📊', Redis: '🔴', PostgreSQL: '🐘' };
+            const icons = { Portainer: '🐳', Nginx: '🌐', 'Pi-hole': '🛡️', 'Home Assistant': '🏠', Nextcloud: '☁️', Grafana: '📊', Transmission: '⬇️', Redis: '🔴', PostgreSQL: '🐘' };
             return icons[name] || '📦';
         }
 
