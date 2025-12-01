@@ -46,10 +46,14 @@ if [[ "$OS" != "ubuntu" && "$OS" != "debian" ]]; then
     exit 1
 fi
 
-echo -e "${GREEN}[1/7]${NC} Updating system packages..."
+echo -e "${GREEN}[1/8]${NC} Updating system packages..."
 apt-get update -qq
 
-echo -e "${GREEN}[2/7]${NC} Installing Docker..."
+echo -e "${GREEN}[2/8]${NC} Installing system dependencies..."
+apt-get install -y -qq curl wget git build-essential python3 make g++
+echo -e "${GREEN}System dependencies installed!${NC}"
+
+echo -e "${GREEN}[3/8]${NC} Installing Docker..."
 if ! command -v docker &> /dev/null; then
     apt-get install -y -qq apt-transport-https ca-certificates curl gnupg lsb-release
     
@@ -107,7 +111,7 @@ if [ "$SUDO_USER_NAME" != "root" ]; then
     echo -e "${GREEN}Added $SUDO_USER_NAME to docker group${NC}"
 fi
 
-echo -e "${GREEN}[3/7]${NC} Installing Node.js..."
+echo -e "${GREEN}[4/8]${NC} Installing Node.js..."
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y -qq nodejs
@@ -116,11 +120,11 @@ else
     echo -e "${YELLOW}Node.js already installed ($(node -v)), skipping...${NC}"
 fi
 
-echo -e "${GREEN}[4/7]${NC} Creating DockPilot directory..."
+echo -e "${GREEN}[5/8]${NC} Creating DockPilot directory..."
 rm -rf $INSTALL_DIR
 mkdir -p $INSTALL_DIR
 
-echo -e "${GREEN}[5/7]${NC} Downloading DockPilot..."
+echo -e "${GREEN}[6/8]${NC} Downloading DockPilot..."
 # For now, we'll create the files directly. In production, this would clone from git.
 # git clone $REPO_URL $INSTALL_DIR
 
@@ -532,11 +536,11 @@ app.listen(PORT, '0.0.0.0', () => {
 SERVERJS
 
 # Install dependencies
-echo -e "${GREEN}[6/7]${NC} Installing dependencies..."
+echo -e "${GREEN}[7/8]${NC} Installing dependencies..."
 cd $INSTALL_DIR
 npm install --silent
 
-echo -e "${GREEN}[7/7]${NC} Setting up systemd service..."
+echo -e "${GREEN}[8/8]${NC} Setting up systemd service..."
 
 # Create systemd service
 cat > /etc/systemd/system/dockpilot.service << SYSTEMD
