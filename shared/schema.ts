@@ -3,6 +3,22 @@ import { pgTable, text, varchar, timestamp, jsonb, integer } from "drizzle-orm/p
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Users for authentication
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Sessions for login state
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Installed Apps tracking
 export const installedApps = pgTable("installed_apps", {
   id: text("id").primaryKey(),
@@ -31,6 +47,14 @@ export const settings = pgTable("settings", {
 });
 
 // Schemas
+export const insertUserSchema = createInsertSchema(users).omit({
+  createdAt: true,
+});
+
+export const insertSessionSchema = createInsertSchema(sessions).omit({
+  createdAt: true,
+});
+
 export const insertInstalledAppSchema = createInsertSchema(installedApps).omit({
   installedAt: true,
 });
@@ -40,6 +64,10 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({
 });
 
 // Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type Session = typeof sessions.$inferSelect;
+export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type InstalledApp = typeof installedApps.$inferSelect;
 export type InsertInstalledApp = z.infer<typeof insertInstalledAppSchema>;
 export type Settings = typeof settings.$inferSelect;
