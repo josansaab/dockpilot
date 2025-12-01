@@ -344,7 +344,7 @@ export async function registerRoutes(
         containerId = await docker.createAndStartContainer(
           parsed.image,
           parsed.name,
-          parsed.ports || [],
+          (parsed.ports || []) as { container: number; host: number }[],
           parsed.environment || {},
           parsed.volumes || []
         );
