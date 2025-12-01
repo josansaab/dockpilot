@@ -51,15 +51,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               const isActive = location === item.href;
               return (
                 <Link key={item.href} href={item.href}>
-                  <a className={cn(
-                    "flex items-center gap-2 px-4 py-1.5 rounded-full transition-all duration-200 text-sm font-medium",
+                  <span className={cn(
+                    "flex items-center gap-2 px-4 py-1.5 rounded-full transition-all duration-200 text-sm font-medium cursor-pointer",
                     isActive 
                       ? "bg-background text-primary shadow-sm" 
                       : "text-muted-foreground hover:text-foreground hover:bg-white/5"
                   )}>
                     <item.icon className="w-4 h-4" />
                     <span className="hidden md:inline">{item.label}</span>
-                  </a>
+                  </span>
                 </Link>
               );
             })}

@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "@/components/layout/Layout";
 import { 
   User, 
@@ -6,7 +7,6 @@ import {
   Globe, 
   Palette, 
   Bell, 
-  HardDrive, 
   Terminal,
   Save
 } from "lucide-react";
@@ -16,16 +16,62 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { settingsApi } from "@/lib/api";
 
 export default function Settings() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  const [serverName, setServerName] = useState("");
+  const [port, setPort] = useState(8080);
+  const [startOnBoot, setStartOnBoot] = useState(true);
+  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [analytics, setAnalytics] = useState(true);
+
+  // Fetch settings
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const response = await settingsApi.get();
+      return response.data;
+    },
+  });
+
+  // Update form when settings load
+  useEffect(() => {
+    if (settings) {
+      setServerName(settings.serverName || "");
+      setPort(settings.webPort || 8080);
+      setStartOnBoot(!!settings.startOnBoot);
+      setAutoUpdate(!!settings.autoUpdate);
+      setAnalytics(!!settings.analytics);
+    }
+  }, [settings]);
+
+  // Save mutation
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const response = await settingsApi.update({
+        serverName,
+        webPort: port,
+        startOnBoot: startOnBoot ? 1 : 0,
+        autoUpdate: autoUpdate ? 1 : 0,
+        analytics: analytics ? 1 : 0,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast({
+        title: "Settings Saved",
+        description: "Your preferences have been updated successfully.",
+        className: "border-green-500/50 text-green-500"
+      });
+    },
+  });
 
   const handleSave = () => {
-    toast({
-      title: "Settings Saved",
-      description: "Your preferences have been updated successfully.",
-      className: "border-green-500/50 text-green-500"
-    });
+    saveMutation.mutate();
   };
 
   return (
@@ -68,13 +114,26 @@ export default function Settings() {
               <div className="grid gap-4 pt-2">
                 <div className="grid gap-2">
                   <Label htmlFor="server-name">Server Name</Label>
-                  <Input id="server-name" defaultValue="DockPilot-Home" className="bg-background/50 border-white/10" />
+                  <Input 
+                    id="server-name" 
+                    value={serverName}
+                    onChange={(e) => setServerName(e.target.value)}
+                    className="bg-background/50 border-white/10" 
+                    data-testid="input-servername"
+                  />
                   <p className="text-xs text-muted-foreground">This name will be displayed on your dashboard.</p>
                 </div>
 
                 <div className="grid gap-2">
                   <Label htmlFor="port">Web Interface Port</Label>
-                  <Input id="port" defaultValue="8080" className="bg-background/50 border-white/10" />
+                  <Input 
+                    id="port" 
+                    type="number"
+                    value={port}
+                    onChange={(e) => setPort(parseInt(e.target.value) || 8080)}
+                    className="bg-background/50 border-white/10" 
+                    data-testid="input-port"
+                  />
                 </div>
               </div>
             </div>
@@ -88,7 +147,11 @@ export default function Settings() {
                   <Label>Start on Boot</Label>
                   <p className="text-xs text-muted-foreground">Automatically start DockPilot when system boots</p>
                 </div>
-                <Switch checked={true} />
+                <Switch 
+                  checked={startOnBoot} 
+                  onCheckedChange={setStartOnBoot}
+                  data-testid="switch-startonboot"
+                />
               </div>
 
               <div className="flex items-center justify-between">
@@ -96,7 +159,11 @@ export default function Settings() {
                   <Label>Auto-Update Containers</Label>
                   <p className="text-xs text-muted-foreground">Check and update containers automatically (Watchtower)</p>
                 </div>
-                <Switch />
+                <Switch 
+                  checked={autoUpdate} 
+                  onCheckedChange={setAutoUpdate}
+                  data-testid="switch-autoupdate"
+                />
               </div>
 
                <div className="flex items-center justify-between">
@@ -104,13 +171,22 @@ export default function Settings() {
                   <Label>Analytics</Label>
                   <p className="text-xs text-muted-foreground">Share anonymous usage statistics</p>
                 </div>
-                <Switch checked={true} />
+                <Switch 
+                  checked={analytics} 
+                  onCheckedChange={setAnalytics}
+                  data-testid="switch-analytics"
+                />
               </div>
             </div>
 
             <div className="pt-6 flex justify-end">
-              <Button onClick={handleSave} className="gap-2">
-                <Save className="w-4 h-4" /> Save Changes
+              <Button 
+                onClick={handleSave} 
+                className="gap-2"
+                disabled={saveMutation.isPending}
+                data-testid="button-save"
+              >
+                <Save className="w-4 h-4" /> {saveMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             </div>
 
