@@ -199,6 +199,7 @@ db.exec(`
         ports TEXT,
         environment TEXT,
         volumes TEXT,
+        docker_config TEXT,
         installed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -510,12 +511,12 @@ app.post('/api/images/pull', requireAuth, async (req, res) => {
 app.get('/api/apps', requireAuth, (req, res) => {
     try {
         const apps = db.prepare('SELECT * FROM installed_apps').all();
-        // Parse JSON fields
         const parsed = apps.map(app => ({
             ...app,
             ports: app.ports ? JSON.parse(app.ports) : [],
             environment: app.environment ? JSON.parse(app.environment) : {},
-            volumes: app.volumes ? JSON.parse(app.volumes) : []
+            volumes: app.volumes ? JSON.parse(app.volumes) : [],
+            dockerConfig: app.docker_config ? JSON.parse(app.docker_config) : {}
         }));
         res.json(parsed);
     } catch (error) {
@@ -526,7 +527,7 @@ app.get('/api/apps', requireAuth, (req, res) => {
 
 app.post('/api/apps', requireAuth, async (req, res) => {
     try {
-        const { id, name, description, category, image, iconUrl, ports, environment, volumes } = req.body;
+        const { id, name, description, category, image, iconUrl, ports, environment, volumes, dockerConfig } = req.body;
         
         const dockerAvailable = await docker.isDockerAvailable();
         let containerId = null;
@@ -535,7 +536,7 @@ app.post('/api/apps', requireAuth, async (req, res) => {
         if (dockerAvailable) {
             try {
                 await docker.pullImage(image);
-                containerId = await docker.createAndStartContainer(image, name.toLowerCase().replace(/\s+/g, '-'), ports || [], environment || {}, volumes || []);
+                containerId = await docker.createAndStartContainer(image, name.toLowerCase().replace(/\s+/g, '-'), ports || [], environment || {}, volumes || [], dockerConfig || {});
                 status = 'running';
             } catch (err) {
                 console.error('Docker operation failed:', err);
@@ -543,14 +544,14 @@ app.post('/api/apps', requireAuth, async (req, res) => {
         }
 
         const stmt = db.prepare(`
-            INSERT INTO installed_apps (id, name, description, category, image, icon_url, container_id, status, ports, environment, volumes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO installed_apps (id, name, description, category, image, icon_url, container_id, status, ports, environment, volumes, docker_config)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
         stmt.run(id, name, description || '', category || 'App', image, iconUrl || '', containerId, status,
-            JSON.stringify(ports || []), JSON.stringify(environment || {}), JSON.stringify(volumes || []));
+            JSON.stringify(ports || []), JSON.stringify(environment || {}), JSON.stringify(volumes || []), JSON.stringify(dockerConfig || {}));
 
-        res.json({ id, name, description, category, image, iconUrl, containerId, status, ports, environment, volumes });
+        res.json({ id, name, description, category, image, iconUrl, containerId, status, ports, environment, volumes, dockerConfig });
     } catch (error) {
         console.error('Install error:', error);
         res.status(500).json({ error: 'Failed to install app' });
@@ -559,7 +560,7 @@ app.post('/api/apps', requireAuth, async (req, res) => {
 
 app.patch('/api/apps/:id', requireAuth, (req, res) => {
     try {
-        const { status, name, image, iconUrl, ports, environment, volumes } = req.body;
+        const { status, name, image, iconUrl, ports, environment, volumes, dockerConfig } = req.body;
         const updates = [];
         const values = [];
         
@@ -570,6 +571,7 @@ app.patch('/api/apps/:id', requireAuth, (req, res) => {
         if (ports !== undefined) { updates.push('ports = ?'); values.push(JSON.stringify(ports)); }
         if (environment !== undefined) { updates.push('environment = ?'); values.push(JSON.stringify(environment)); }
         if (volumes !== undefined) { updates.push('volumes = ?'); values.push(JSON.stringify(volumes)); }
+        if (dockerConfig !== undefined) { updates.push('docker_config = ?'); values.push(JSON.stringify(dockerConfig)); }
         
         if (updates.length > 0) {
             db.prepare(`UPDATE installed_apps SET ${updates.join(', ')} WHERE id = ?`).run(...values, req.params.id);
@@ -699,10 +701,11 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         .btn-primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
         .btn-primary:hover { background: linear-gradient(135deg, #2563eb, #7c3aed); }
         .modal { background: rgba(0,0,0,0.7); }
-        .app-icon { width: 48px; height: 48px; border-radius: 12px; object-fit: contain; background: white; padding: 6px; }
-        .app-icon-sm { width: 32px; height: 32px; border-radius: 8px; object-fit: contain; background: white; padding: 4px; }
+        .app-icon { width: 56px; height: 56px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
+        .app-icon-cat { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; background: white; padding: 6px; }
         input, select, textarea { background: hsl(222 47% 15%); border: 1px solid hsl(217 19% 27%); color: white; }
         input:focus, select:focus, textarea:focus { outline: none; border-color: #3b82f6; }
+        .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 0.5rem; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -762,7 +765,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                     <button onclick="showCustomInstall()" class="px-4 py-2 rounded-lg btn-primary text-white text-sm">+ Custom App</button>
                 </div>
                 <div class="flex gap-2 mb-4 flex-wrap" id="category-tabs"></div>
-                <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8" id="catalog"></div>
+                <div class="grid gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12" id="catalog"></div>
             </div>
             <div class="card rounded-2xl p-6">
                 <h2 class="text-xl font-bold mb-4">Docker Containers</h2>
@@ -773,7 +776,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 
     <!-- Install Modal -->
     <div id="install-modal" class="hidden fixed inset-0 modal flex items-center justify-center p-4 z-50">
-        <div class="card rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="card rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-start mb-4">
                 <div class="flex items-center gap-3">
                     <img id="modal-icon" class="app-icon" src="" alt="">
@@ -781,26 +784,100 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 </div>
                 <button onclick="closeModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
             </div>
-            <form id="install-form" class="space-y-4">
-                <div><label class="block text-sm mb-2">Container Name</label><input type="text" id="modal-name" required class="w-full px-4 py-2 rounded-lg"></div>
-                <div><label class="block text-sm mb-2">Docker Image</label><input type="text" id="modal-image" required class="w-full px-4 py-2 rounded-lg"></div>
+            <form id="install-form" class="space-y-5">
+                <!-- Basic Settings -->
+                <div class="section-title">Basic Settings</div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm mb-2">Container Name</label><input type="text" id="modal-name" required class="w-full px-4 py-2 rounded-lg"></div>
+                    <div><label class="block text-sm mb-2">Docker Image</label><input type="text" id="modal-image" required class="w-full px-4 py-2 rounded-lg"></div>
+                </div>
+                <!-- Network Settings -->
+                <div class="section-title">Network</div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm mb-2">Network Mode</label>
+                        <select id="modal-network" class="w-full px-4 py-2 rounded-lg">
+                            <option value="bridge">Bridge (Default)</option>
+                            <option value="host">Host</option>
+                            <option value="none">None</option>
+                            <option value="custom">Custom Network</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-2">Custom Network Name</label>
+                        <input type="text" id="modal-network-name" class="w-full px-4 py-2 rounded-lg" placeholder="my-network">
+                    </div>
+                </div>
                 <div>
                     <label class="block text-sm mb-2">Port Mappings <span class="text-gray-500">(host:container)</span></label>
                     <div id="modal-ports" class="space-y-2"></div>
                     <button type="button" onclick="addPort()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Port</button>
                 </div>
+                <!-- Storage Settings -->
+                <div class="section-title">Storage</div>
                 <div>
-                    <label class="block text-sm mb-2">Environment Variables</label>
-                    <div id="modal-env" class="space-y-2"></div>
-                    <button type="button" onclick="addEnv()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Variable</button>
-                </div>
-                <div>
-                    <label class="block text-sm mb-2">Volume Mounts <span class="text-gray-500">(host:container)</span></label>
+                    <label class="block text-sm mb-2">Volume Mounts <span class="text-gray-500">(host path : container path)</span></label>
                     <div id="modal-volumes" class="space-y-2"></div>
                     <button type="button" onclick="addVolume()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Volume</button>
                 </div>
+                <div>
+                    <label class="block text-sm mb-2">Bind Mounts <span class="text-gray-500">(read-only option)</span></label>
+                    <div id="modal-binds" class="space-y-2"></div>
+                    <button type="button" onclick="addBind()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Bind Mount</button>
+                </div>
+                <!-- Environment -->
+                <div class="section-title">Environment Variables</div>
+                <div>
+                    <div id="modal-env" class="space-y-2"></div>
+                    <button type="button" onclick="addEnv()" class="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Variable</button>
+                </div>
+                <!-- Advanced Settings -->
+                <div class="section-title">Advanced Options</div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm mb-2">Restart Policy</label>
+                        <select id="modal-restart" class="w-full px-4 py-2 rounded-lg">
+                            <option value="no">No</option>
+                            <option value="always" selected>Always</option>
+                            <option value="on-failure">On Failure</option>
+                            <option value="unless-stopped">Unless Stopped</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-2">Memory Limit</label>
+                        <input type="text" id="modal-memory" class="w-full px-4 py-2 rounded-lg" placeholder="e.g., 512m, 2g">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm mb-2">CPU Limit</label>
+                        <input type="text" id="modal-cpu" class="w-full px-4 py-2 rounded-lg" placeholder="e.g., 0.5, 2">
+                    </div>
+                    <div>
+                        <label class="block text-sm mb-2">Hostname</label>
+                        <input type="text" id="modal-hostname" class="w-full px-4 py-2 rounded-lg" placeholder="container-hostname">
+                    </div>
+                </div>
+                <div class="flex gap-6">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="modal-privileged" class="w-4 h-4 rounded">
+                        <span class="text-sm">Privileged Mode</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="modal-tty" class="w-4 h-4 rounded" checked>
+                        <span class="text-sm">Allocate TTY</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="modal-interactive" class="w-4 h-4 rounded" checked>
+                        <span class="text-sm">Interactive</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">Capabilities <span class="text-gray-500">(comma-separated)</span></label>
+                    <input type="text" id="modal-caps" class="w-full px-4 py-2 rounded-lg" placeholder="NET_ADMIN, SYS_PTRACE">
+                </div>
                 <div id="modal-error" class="hidden p-3 rounded-lg bg-red-500/20 text-red-400 text-sm"></div>
-                <div class="flex gap-3">
+                <div class="flex gap-3 pt-2">
                     <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20">Cancel</button>
                     <button type="submit" id="modal-submit" class="flex-1 py-3 rounded-xl btn-primary text-white">Install</button>
                 </div>
@@ -937,9 +1014,9 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         function renderCatalog() {
             const apps = selectedCategory === 'all' ? APP_CATALOG : APP_CATALOG.filter(a => a.category === selectedCategory);
             document.getElementById('catalog').innerHTML = apps.map(app => `
-                <button onclick='openInstallModal(${JSON.stringify(app).replace(/'/g, "\\'")})' class="card rounded-xl p-3 text-center hover:bg-white/10 transition flex flex-col items-center">
-                    <img src="${app.iconUrl}" class="app-icon-sm mb-2" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
-                    <div class="font-medium text-xs truncate w-full">${app.name}</div>
+                <button onclick='openInstallModal(${JSON.stringify(app).replace(/'/g, "\\'")})' class="card rounded-xl p-4 text-center hover:bg-white/10 transition flex flex-col items-center">
+                    <img src="${app.iconUrl}" class="app-icon-cat mb-2" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
+                    <div class="font-medium text-sm truncate w-full">${app.name}</div>
                 </button>
             `).join('');
         }
@@ -954,6 +1031,17 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             document.getElementById('modal-ports').innerHTML = '';
             document.getElementById('modal-env').innerHTML = '';
             document.getElementById('modal-volumes').innerHTML = '';
+            document.getElementById('modal-binds').innerHTML = '';
+            document.getElementById('modal-network').value = 'bridge';
+            document.getElementById('modal-network-name').value = '';
+            document.getElementById('modal-restart').value = 'always';
+            document.getElementById('modal-memory').value = '';
+            document.getElementById('modal-cpu').value = '';
+            document.getElementById('modal-hostname').value = '';
+            document.getElementById('modal-privileged').checked = false;
+            document.getElementById('modal-tty').checked = true;
+            document.getElementById('modal-interactive').checked = true;
+            document.getElementById('modal-caps').value = '';
             (app.ports || []).forEach(p => addPort(p.h, p.c));
             if ((app.ports || []).length === 0) addPort();
             document.getElementById('modal-error').classList.add('hidden');
@@ -991,11 +1079,28 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             document.getElementById('modal-volumes').appendChild(div);
         }
 
+        function addBind(host = '', container = '', readonly = false) {
+            const div = document.createElement('div');
+            div.className = 'flex gap-2 items-center';
+            div.innerHTML = `<input type="text" placeholder="/host/path" value="${host}" class="flex-1 px-3 py-2 rounded-lg"><input type="text" placeholder="/container/path" value="${container}" class="flex-1 px-3 py-2 rounded-lg"><label class="flex items-center gap-1 text-xs text-gray-400"><input type="checkbox" ${readonly ? 'checked' : ''} class="w-3 h-3">RO</label><button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-400">&times;</button>`;
+            document.getElementById('modal-binds').appendChild(div);
+        }
+
         document.getElementById('install-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const errorEl = document.getElementById('modal-error');
             const name = document.getElementById('modal-name').value;
             const image = document.getElementById('modal-image').value;
+            const networkMode = document.getElementById('modal-network').value;
+            const networkName = document.getElementById('modal-network-name').value;
+            const restartPolicy = document.getElementById('modal-restart').value;
+            const memory = document.getElementById('modal-memory').value;
+            const cpu = document.getElementById('modal-cpu').value;
+            const hostname = document.getElementById('modal-hostname').value;
+            const privileged = document.getElementById('modal-privileged').checked;
+            const tty = document.getElementById('modal-tty').checked;
+            const interactive = document.getElementById('modal-interactive').checked;
+            const caps = document.getElementById('modal-caps').value.split(',').map(c => c.trim()).filter(c => c);
             const ports = [...document.getElementById('modal-ports').querySelectorAll('div')].map(d => {
                 const inputs = d.querySelectorAll('input');
                 return { host: parseInt(inputs[0].value) || 0, container: parseInt(inputs[1].value) || 0 };
@@ -1009,13 +1114,18 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                 const inputs = d.querySelectorAll('input');
                 return { host: inputs[0].value, container: inputs[1].value };
             }).filter(v => v.host && v.container);
+            const binds = [...document.getElementById('modal-binds').querySelectorAll('div')].map(d => {
+                const inputs = d.querySelectorAll('input');
+                return { host: inputs[0].value, container: inputs[1].value, readonly: inputs[2]?.checked || false };
+            }).filter(b => b.host && b.container);
+            const dockerConfig = { networkMode, networkName, restartPolicy, memory, cpu, hostname, privileged, tty, interactive, caps, binds };
             try {
                 const isEdit = currentApp && currentApp.isEdit;
                 const url = isEdit ? `/api/apps/${currentApp.id}` : '/api/apps';
                 const method = isEdit ? 'PATCH' : 'POST';
                 const body = isEdit 
-                    ? { name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes }
-                    : { id: currentApp.id || name.toLowerCase().replace(/\s+/g, '-'), name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes };
+                    ? { name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes, dockerConfig }
+                    : { id: currentApp.id || name.toLowerCase().replace(/\s+/g, '-'), name, image, iconUrl: currentApp.iconUrl, ports, environment, volumes, dockerConfig };
                 const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'include' });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
@@ -1070,6 +1180,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             const app = apps.find(a => a.id === id);
             if (!app) return;
             const catalogApp = APP_CATALOG.find(a => a.id === app.id || a.name === app.name);
+            const dc = app.dockerConfig || {};
             currentApp = { ...app, iconUrl: app.icon_url || (catalogApp ? catalogApp.iconUrl : ''), isEdit: true };
             document.getElementById('modal-icon').src = currentApp.iconUrl || 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png';
             document.getElementById('modal-title').textContent = app.name + ' (Edit)';
@@ -1079,9 +1190,22 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             document.getElementById('modal-ports').innerHTML = '';
             document.getElementById('modal-env').innerHTML = '';
             document.getElementById('modal-volumes').innerHTML = '';
+            document.getElementById('modal-binds').innerHTML = '';
+            document.getElementById('modal-network').value = dc.networkMode || 'bridge';
+            document.getElementById('modal-network-name').value = dc.networkName || '';
+            document.getElementById('modal-restart').value = dc.restartPolicy || 'always';
+            document.getElementById('modal-memory').value = dc.memory || '';
+            document.getElementById('modal-cpu').value = dc.cpu || '';
+            document.getElementById('modal-hostname').value = dc.hostname || '';
+            document.getElementById('modal-privileged').checked = dc.privileged || false;
+            document.getElementById('modal-tty').checked = dc.tty !== false;
+            document.getElementById('modal-interactive').checked = dc.interactive !== false;
+            document.getElementById('modal-caps').value = (dc.caps || []).join(', ');
             (app.ports || []).forEach(p => addPort(p.host || p.h, p.container || p.c));
             Object.entries(app.environment || {}).forEach(([k, v]) => addEnv(k, v));
             (app.volumes || []).forEach(v => addVolume(v.host, v.container));
+            (dc.binds || []).forEach(b => addBind(b.host, b.container, b.readonly));
+            document.getElementById('modal-error').classList.add('hidden');
             document.getElementById('modal-submit').textContent = 'Save Changes';
             document.getElementById('install-modal').classList.remove('hidden');
         }
