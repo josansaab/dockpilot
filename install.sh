@@ -948,7 +948,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
 
         const APP_CATALOG = [
             // Media
-            { id: 'plex', name: 'Plex', category: 'Media', image: 'plexinc/pms-docker:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/plex.png', ports: [{c:32400,h:32400}], desc: 'Media server' },
+            { id: 'plex', name: 'Plex', category: 'Media', image: 'plexinc/pms-docker:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/plex.png', ports: [{c:32400,h:32400}], env: {PLEX_UID:'1000',PLEX_GID:'1000',ADVERTISE_IP:'http://YOUR_SERVER_IP:32400/'}, networkMode: 'host', desc: 'Media server' },
             { id: 'jellyfin', name: 'Jellyfin', category: 'Media', image: 'jellyfin/jellyfin:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png', ports: [{c:8096,h:8096}], desc: 'Free media system' },
             { id: 'emby', name: 'Emby', category: 'Media', image: 'emby/embyserver:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/emby.png', ports: [{c:8096,h:8097}], desc: 'Media server' },
             { id: 'sonarr', name: 'Sonarr', category: 'Media', image: 'linuxserver/sonarr:latest', iconUrl: 'https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/sonarr.png', ports: [{c:8989,h:8989}], desc: 'TV show manager' },
@@ -1088,7 +1088,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             document.getElementById('modal-env').innerHTML = '';
             document.getElementById('modal-volumes').innerHTML = '';
             document.getElementById('modal-binds').innerHTML = '';
-            document.getElementById('modal-network').value = 'bridge';
+            // Apply catalog defaults for network mode
+            document.getElementById('modal-network').value = app.networkMode || 'bridge';
             document.getElementById('modal-network-name').value = '';
             document.getElementById('modal-restart').value = 'always';
             document.getElementById('modal-memory').value = '';
@@ -1100,6 +1101,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             document.getElementById('modal-caps').value = '';
             (app.ports || []).forEach(p => addPort(p.h, p.c));
             if ((app.ports || []).length === 0) addPort();
+            // Apply catalog environment variables
+            Object.entries(app.env || {}).forEach(([k, v]) => addEnv(k, v));
             document.getElementById('modal-error').classList.add('hidden');
             document.getElementById('modal-submit').textContent = 'Install';
             document.getElementById('install-modal').classList.remove('hidden');
