@@ -7,10 +7,9 @@ export interface DockerContainer {
   status: string;
   ports: string;
   created: string;
-  cpu: number; // percentage
-  memory: number; // MB
-  // Added for CasaOS style
-  icon?: string; 
+  cpu: number;
+  memory: number;
+  iconUrl?: string; 
   category?: string;
   url?: string;
 }
@@ -29,7 +28,7 @@ export interface AppStoreItem {
   description: string;
   category: string;
   image: string;
-  iconColor: string;
+  iconUrl: string;
   downloads: string;
 }
 
@@ -40,7 +39,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Organizes all your personal media so you can enjoy it no matter where you are.",
     category: "Media",
     image: "plexinc/pms-docker:latest",
-    iconColor: "bg-orange-500",
+    iconUrl: "https://www.plex.tv/wp-content/uploads/2018/01/pmp-icon-1.png",
     downloads: "10M+"
   },
   {
@@ -49,7 +48,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "The Free Software Media System. No strings attached.",
     category: "Media",
     image: "jellyfin/jellyfin:latest",
-    iconColor: "bg-purple-600",
+    iconUrl: "https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg",
     downloads: "5M+"
   },
   {
@@ -58,7 +57,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Network-wide Ad Blocking. A black hole for Internet advertisements.",
     category: "Network",
     image: "pihole/pihole:latest",
-    iconColor: "bg-red-600",
+    iconUrl: "https://wp-cdn.pi-hole.net/wp-content/uploads/2016/12/Vortex-R.png",
     downloads: "20M+"
   },
   {
@@ -67,7 +66,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Open source home automation that puts local control and privacy first.",
     category: "Automation",
     image: "homeassistant/home-assistant:stable",
-    iconColor: "bg-blue-500",
+    iconUrl: "https://upload.wikimedia.org/wikipedia/commons/6/6e/Home_Assistant_Logo.svg",
     downloads: "8M+"
   },
   {
@@ -76,7 +75,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "The self-hosted productivity platform that keeps you in control.",
     category: "Productivity",
     image: "nextcloud:latest",
-    iconColor: "bg-blue-600",
+    iconUrl: "https://upload.wikimedia.org/wikipedia/commons/6/60/Nextcloud_Logo.svg",
     downloads: "15M+"
   },
   {
@@ -85,7 +84,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Making Docker and Kubernetes management easy.",
     category: "System",
     image: "portainer/portainer-ce:latest",
-    iconColor: "bg-sky-500",
+    iconUrl: "https://www.portainer.io/hubfs/portainer-logo-black.svg",
     downloads: "50M+"
   },
   {
@@ -94,7 +93,7 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Low-code programming for event-driven applications.",
     category: "Development",
     image: "nodered/node-red:latest",
-    iconColor: "bg-red-700",
+    iconUrl: "https://nodered.org/about/resources/media/node-red-icon.svg",
     downloads: "4M+"
   },
   {
@@ -103,63 +102,47 @@ export const APP_CATALOG: AppStoreItem[] = [
     description: "Free and reliable P2P BitTorrent client.",
     category: "Downloaders",
     image: "linuxserver/qbittorrent:latest",
-    iconColor: "bg-blue-400",
+    iconUrl: "https://upload.wikimedia.org/wikipedia/commons/6/66/New_qBittorrent_Logo.svg",
     downloads: "12M+"
-  }
-];
-
-export const MOCK_CONTAINERS: DockerContainer[] = [
-  {
-    id: "c1a2b3d4e5f6",
-    name: "Plex",
-    image: "plexinc/pms-docker:latest",
-    state: "running",
-    status: "Up 2 hours",
-    ports: "32400:32400",
-    created: "2023-10-25 10:00:00",
-    cpu: 1.2,
-    memory: 128,
-    icon: "bg-orange-500",
-    category: "Media",
-    url: "http://localhost:32400"
   },
   {
-    id: "a1b2c3d4e5f6",
-    name: "Pi-hole",
-    image: "pihole/pihole:latest",
-    state: "running",
-    status: "Up 5 days",
-    ports: "80:80",
-    created: "2023-10-20 08:30:00",
-    cpu: 4.5,
-    memory: 512,
-    icon: "bg-red-600",
+    id: "grafana",
+    name: "Grafana",
+    description: "The open observability platform for metrics, logs, and traces.",
+    category: "Monitoring",
+    image: "grafana/grafana:latest",
+    iconUrl: "https://raw.githubusercontent.com/grafana/grafana/main/public/img/grafana_icon.svg",
+    downloads: "25M+"
+  },
+  {
+    id: "nginx",
+    name: "Nginx Proxy Manager",
+    description: "Expose your services easily and securely with SSL.",
     category: "Network",
-    url: "http://localhost/admin"
+    image: "jc21/nginx-proxy-manager:latest",
+    iconUrl: "https://raw.githubusercontent.com/NginxProxyManager/nginx-proxy-manager/develop/frontend/app-images/logo-256.png",
+    downloads: "30M+"
   },
   {
-    id: "1234567890ab",
-    name: "Home Assistant",
-    image: "homeassistant/home-assistant:stable",
-    state: "running",
-    status: "Up 30 minutes",
-    ports: "8123:8123",
-    created: "2023-10-25 11:30:00",
-    cpu: 12.8,
-    memory: 256,
-    icon: "bg-blue-500",
-    category: "Automation",
-    url: "http://localhost:8123"
+    id: "vaultwarden",
+    name: "Vaultwarden",
+    description: "Lightweight Bitwarden server API implementation.",
+    category: "Security",
+    image: "vaultwarden/server:latest",
+    iconUrl: "https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg",
+    downloads: "8M+"
+  },
+  {
+    id: "syncthing",
+    name: "Syncthing",
+    description: "Continuous file synchronization program.",
+    category: "Productivity",
+    image: "syncthing/syncthing:latest",
+    iconUrl: "https://syncthing.net/img/logo-horizontal.svg",
+    downloads: "10M+"
   }
 ];
 
-export const MOCK_IMAGES: DockerImage[] = [
-  {
-    id: "sha256:9876543210",
-    repository: "nginx",
-    tag: "latest",
-    size: "187MB",
-    created: "2 weeks ago"
-  },
-  // ... others
-];
+export const MOCK_CONTAINERS: DockerContainer[] = [];
+
+export const MOCK_IMAGES: DockerImage[] = [];

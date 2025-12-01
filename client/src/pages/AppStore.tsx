@@ -47,7 +47,7 @@ export default function AppStore() {
         description: app.description,
         category: app.category,
         image: app.image,
-        iconColor: app.iconColor,
+        iconColor: app.iconUrl,
         ports: defaultPorts,
         environment: {},
         volumes: [],
@@ -135,8 +135,17 @@ export default function AppStore() {
           {filteredApps.map(app => (
              <div key={app.id} className="group relative bg-card hover:bg-accent/50 border border-border/50 rounded-2xl p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl flex flex-col h-full" data-testid={`app-card-${app.id}`}>
                <div className="flex justify-between items-start mb-4">
-                 <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg", app.iconColor)}>
-                   <span className="text-2xl font-bold">{app.name.substring(0, 2)}</span>
+                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-white/10 shadow-lg overflow-hidden p-2">
+                   <img 
+                     src={app.iconUrl} 
+                     alt={app.name} 
+                     className="w-full h-full object-contain"
+                     onError={(e) => {
+                       e.currentTarget.style.display = 'none';
+                       e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                     }}
+                   />
+                   <span className="text-2xl font-bold hidden">{app.name.substring(0, 2)}</span>
                  </div>
                  <Badge variant="secondary" className="font-normal bg-secondary/50">
                    {app.category}

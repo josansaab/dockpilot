@@ -125,11 +125,16 @@ export default function Dashboard() {
             )} data-testid={`app-status-${app.id}`} />
 
             {/* App Icon */}
-            <div className={cn(
-              "w-20 h-20 rounded-2xl flex items-center justify-center text-white shadow-lg text-3xl font-bold mb-2 transition-transform group-hover:scale-105",
-              app.iconColor || "bg-slate-700"
-            )}>
-              {app.name.substring(0, 2)}
+            <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-white/10 shadow-lg mb-2 transition-transform group-hover:scale-105 overflow-hidden p-3">
+              {app.iconColor?.startsWith('http') ? (
+                <img 
+                  src={app.iconColor} 
+                  alt={app.name} 
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <span className="text-3xl font-bold text-white">{app.name.substring(0, 2)}</span>
+              )}
             </div>
 
             {/* App Info */}
