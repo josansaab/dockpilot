@@ -758,7 +758,7 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         .btn-primary:hover { background: linear-gradient(135deg, #2563eb, #7c3aed); }
         .modal { background: rgba(0,0,0,0.7); }
         .app-icon { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
-        .app-icon-cat { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: white; padding: 8px; }
+        .app-icon-cat { width: 80px; height: 80px; border-radius: 16px; object-fit: contain; background: white; padding: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         input, select, textarea { background: hsl(222 47% 15%); border: 1px solid hsl(217 19% 27%); color: white; }
         input:focus, select:focus, textarea:focus { outline: none; border-color: #3b82f6; }
         .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; margin-bottom: 0.5rem; }
@@ -821,7 +821,19 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
                     <button onclick="showCustomInstall()" class="px-4 py-2 rounded-lg btn-primary text-white text-sm">+ Custom App</button>
                 </div>
                 <div class="flex gap-2 mb-4 flex-wrap" id="category-tabs"></div>
-                <div class="grid gap-2 grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12" id="catalog"></div>
+                <div class="relative">
+                    <button onclick="prevPage()" id="prev-btn" class="absolute left-0 top-1/2 -translate-y-1/2 -ml-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-sm transition hidden">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    </button>
+                    <div class="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6" id="catalog"></div>
+                    <button onclick="nextPage()" id="next-btn" class="absolute right-0 top-1/2 -translate-y-1/2 -mr-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center backdrop-blur-sm transition hidden">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </button>
+                </div>
+                <div class="flex justify-center items-center gap-4 mt-4">
+                    <span id="page-info" class="text-sm text-gray-400"></span>
+                    <div id="page-dots" class="flex gap-2"></div>
+                </div>
             </div>
             <div class="card rounded-2xl p-6">
                 <h2 class="text-xl font-bold mb-4">Docker Containers</h2>
@@ -945,6 +957,8 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
         let currentUser = null;
         let currentApp = null;
         let selectedCategory = 'all';
+        let currentPage = 0;
+        const APPS_PER_PAGE = 12;
 
         const APP_CATALOG = [
             // Media
@@ -1065,16 +1079,57 @@ cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
             ).join('');
         }
 
-        function filterCategory(cat) { selectedCategory = cat; renderCategories(); renderCatalog(); }
+        function filterCategory(cat) { selectedCategory = cat; currentPage = 0; renderCategories(); renderCatalog(); }
+
+        function getFilteredApps() {
+            return selectedCategory === 'all' ? APP_CATALOG : APP_CATALOG.filter(a => a.category === selectedCategory);
+        }
+
+        function getTotalPages() {
+            return Math.ceil(getFilteredApps().length / APPS_PER_PAGE);
+        }
+
+        function prevPage() {
+            if (currentPage > 0) { currentPage--; renderCatalog(); }
+        }
+
+        function nextPage() {
+            if (currentPage < getTotalPages() - 1) { currentPage++; renderCatalog(); }
+        }
+
+        function goToPage(page) {
+            currentPage = page; renderCatalog();
+        }
 
         function renderCatalog() {
-            const apps = selectedCategory === 'all' ? APP_CATALOG : APP_CATALOG.filter(a => a.category === selectedCategory);
-            document.getElementById('catalog').innerHTML = apps.map(app => `
-                <button onclick='openInstallModal(${JSON.stringify(app).replace(/'/g, "\\'")})' class="card rounded-xl p-4 text-center hover:bg-white/10 transition flex flex-col items-center">
-                    <img src="${app.iconUrl}" class="app-icon-cat mb-2" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
+            const apps = getFilteredApps();
+            const totalPages = getTotalPages();
+            const startIdx = currentPage * APPS_PER_PAGE;
+            const pageApps = apps.slice(startIdx, startIdx + APPS_PER_PAGE);
+
+            document.getElementById('catalog').innerHTML = pageApps.map(app => `
+                <button onclick='openInstallModal(${JSON.stringify(app).replace(/'/g, "\\'")})' class="card rounded-xl p-5 text-center hover:bg-white/10 hover:scale-105 transition-all duration-200 flex flex-col items-center">
+                    <img src="${app.iconUrl}" class="app-icon-cat mb-3" onerror="this.src='https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/docker.png'" alt="${app.name}">
                     <div class="font-medium text-sm truncate w-full">${app.name}</div>
+                    <div class="text-xs text-gray-500 mt-1">${app.category}</div>
                 </button>
             `).join('');
+
+            // Update navigation buttons
+            document.getElementById('prev-btn').classList.toggle('hidden', currentPage === 0);
+            document.getElementById('next-btn').classList.toggle('hidden', currentPage >= totalPages - 1);
+
+            // Update page info
+            document.getElementById('page-info').textContent = totalPages > 1 ? `Page ${currentPage + 1} of ${totalPages}` : '';
+
+            // Update page dots
+            if (totalPages > 1) {
+                document.getElementById('page-dots').innerHTML = Array.from({length: totalPages}, (_, i) => `
+                    <button onclick="goToPage(${i})" class="w-2.5 h-2.5 rounded-full transition-all ${i === currentPage ? 'bg-blue-500 w-6' : 'bg-white/30 hover:bg-white/50'}"></button>
+                `).join('');
+            } else {
+                document.getElementById('page-dots').innerHTML = '';
+            }
         }
 
         function openInstallModal(app) {
