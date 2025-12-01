@@ -132,23 +132,29 @@ export async function registerRoutes(
     try {
       const parsed = insertInstalledAppSchema.parse(req.body);
       
-      // First, pull the image if not already present
-      await docker.pullImage(parsed.image);
+      const dockerAvailable = await docker.isDockerAvailable();
       
-      // Create and start the container
-      const containerId = await docker.createAndStartContainer(
-        parsed.image,
-        parsed.name,
-        parsed.ports || [],
-        parsed.environment || {},
-        parsed.volumes || []
-      );
+      let containerId: string | null = null;
+      let status = 'stopped';
       
-      // Save to database
+      if (dockerAvailable) {
+        // Pull the image and create container if Docker is available
+        await docker.pullImage(parsed.image);
+        containerId = await docker.createAndStartContainer(
+          parsed.image,
+          parsed.name,
+          parsed.ports || [],
+          parsed.environment || {},
+          parsed.volumes || []
+        );
+        status = 'running';
+      }
+      
+      // Save to database (works even without Docker for demo purposes)
       const app = await storage.createInstalledApp({
         ...parsed,
         containerId,
-        status: 'running'
+        status
       });
       
       res.json(app);
