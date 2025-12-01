@@ -75,6 +75,31 @@ else
     echo -e "${YELLOW}Docker already installed, skipping...${NC}"
 fi
 
+# Ensure Docker is running and accessible
+echo -e "${YELLOW}Ensuring Docker is ready...${NC}"
+systemctl start docker 2>/dev/null || true
+systemctl enable docker 2>/dev/null || true
+
+# Wait for Docker to be fully ready
+echo -e "${YELLOW}Waiting for Docker daemon...${NC}"
+DOCKER_READY=false
+for i in {1..30}; do
+    if docker info >/dev/null 2>&1; then
+        DOCKER_READY=true
+        break
+    fi
+    sleep 1
+done
+
+if [ "$DOCKER_READY" = true ]; then
+    echo -e "${GREEN}Docker is ready!${NC}"
+else
+    echo -e "${RED}Warning: Docker daemon not responding. DockPilot will run in demo mode.${NC}"
+fi
+
+# Ensure Docker socket has correct permissions
+chmod 666 /var/run/docker.sock 2>/dev/null || true
+
 # Add current user to docker group
 SUDO_USER_NAME=${SUDO_USER:-$USER}
 if [ "$SUDO_USER_NAME" != "root" ]; then
@@ -716,6 +741,26 @@ systemctl daemon-reload
 systemctl enable dockpilot
 systemctl start dockpilot
 
+# Wait for DockPilot to start
+sleep 3
+
+# Verify Docker connectivity through DockPilot API
+echo -e "${YELLOW}Verifying Docker connectivity...${NC}"
+HEALTH_CHECK=$(curl -s http://localhost:8080/api/health 2>/dev/null || echo '{"dockerAvailable":false}')
+if echo "$HEALTH_CHECK" | grep -q '"dockerAvailable":true'; then
+    DOCKER_STATUS="${GREEN}Connected ✓${NC}"
+else
+    DOCKER_STATUS="${YELLOW}Demo Mode (Docker not accessible)${NC}"
+    # Try one more time to fix permissions and restart
+    chmod 666 /var/run/docker.sock 2>/dev/null || true
+    systemctl restart dockpilot
+    sleep 2
+    HEALTH_CHECK=$(curl -s http://localhost:8080/api/health 2>/dev/null || echo '{"dockerAvailable":false}')
+    if echo "$HEALTH_CHECK" | grep -q '"dockerAvailable":true'; then
+        DOCKER_STATUS="${GREEN}Connected ✓${NC}"
+    fi
+fi
+
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                                                               ║${NC}"
@@ -725,6 +770,7 @@ echo -e "${GREEN}╠════════════════════
 echo -e "${GREEN}║                                                               ║${NC}"
 echo -e "${GREEN}║   Web Interface:  ${BLUE}http://localhost:8080${GREEN}                    ║${NC}"
 echo -e "${GREEN}║   API Endpoint:   ${BLUE}http://localhost:8080/api${GREEN}                ║${NC}"
+echo -e "${GREEN}║   Docker Status:  ${NC}$DOCKER_STATUS${GREEN}                           ${NC}"
 echo -e "${GREEN}║                                                               ║${NC}"
 echo -e "${GREEN}║   Manage service:                                             ║${NC}"
 echo -e "${GREEN}║   ${YELLOW}sudo systemctl status dockpilot${GREEN}                          ║${NC}"
