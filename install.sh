@@ -1,0 +1,736 @@
+#!/bin/bash
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+INSTALL_DIR="/opt/dockpilot"
+REPO_URL="https://github.com/YOUR_USERNAME/dockpilot.git"
+
+echo -e "${BLUE}"
+echo "╔═══════════════════════════════════════════════════════════════╗"
+echo "║                                                               ║"
+echo "║     ██████╗  ██████╗  ██████╗██╗  ██╗██████╗ ██╗██╗      ██╗  ║"
+echo "║     ██╔══██╗██╔═══██╗██╔════╝██║ ██╔╝██╔══██╗██║██║     ██╔╝  ║"
+echo "║     ██║  ██║██║   ██║██║     █████╔╝ ██████╔╝██║██║    ██╔╝   ║"
+echo "║     ██║  ██║██║   ██║██║     ██╔═██╗ ██╔═══╝ ██║██║   ██╔╝    ║"
+echo "║     ██████╔╝╚██████╔╝╚██████╗██║  ██╗██║     ██║█████╗██║     ║"
+echo "║     ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚════╝╚═╝     ║"
+echo "║                                                               ║"
+echo "║              Docker GUI Installer for Ubuntu/Debian           ║"
+echo "╚═══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Please run as root (sudo)${NC}"
+    exit 1
+fi
+
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    echo -e "${RED}Cannot detect OS. This script supports Ubuntu and Debian only.${NC}"
+    exit 1
+fi
+
+if [[ "$OS" != "ubuntu" && "$OS" != "debian" ]]; then
+    echo -e "${RED}This script only supports Ubuntu and Debian.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}[1/7]${NC} Updating system packages..."
+apt-get update -qq
+
+echo -e "${GREEN}[2/7]${NC} Installing Docker..."
+if ! command -v docker &> /dev/null; then
+    apt-get install -y -qq apt-transport-https ca-certificates curl gnupg lsb-release
+    
+    # Add Docker's official GPG key
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/$OS/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    
+    # Add the repository
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    
+    # Start and enable Docker
+    systemctl start docker
+    systemctl enable docker
+    
+    echo -e "${GREEN}Docker installed successfully!${NC}"
+else
+    echo -e "${YELLOW}Docker already installed, skipping...${NC}"
+fi
+
+# Add current user to docker group
+SUDO_USER_NAME=${SUDO_USER:-$USER}
+if [ "$SUDO_USER_NAME" != "root" ]; then
+    usermod -aG docker $SUDO_USER_NAME
+    echo -e "${GREEN}Added $SUDO_USER_NAME to docker group${NC}"
+fi
+
+echo -e "${GREEN}[3/7]${NC} Installing Node.js..."
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y -qq nodejs
+    echo -e "${GREEN}Node.js $(node -v) installed!${NC}"
+else
+    echo -e "${YELLOW}Node.js already installed ($(node -v)), skipping...${NC}"
+fi
+
+echo -e "${GREEN}[4/7]${NC} Creating DockPilot directory..."
+rm -rf $INSTALL_DIR
+mkdir -p $INSTALL_DIR
+
+echo -e "${GREEN}[5/7]${NC} Downloading DockPilot..."
+# For now, we'll create the files directly. In production, this would clone from git.
+# git clone $REPO_URL $INSTALL_DIR
+
+# Create package.json
+cat > $INSTALL_DIR/package.json << 'PACKAGEJSON'
+{
+  "name": "dockpilot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "build": "cd frontend && npm run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "cors": "^2.8.5",
+    "dockerode": "^4.0.2",
+    "express": "^4.21.2"
+  }
+}
+PACKAGEJSON
+
+# Create server directory
+mkdir -p $INSTALL_DIR/server
+
+# Create database setup
+cat > $INSTALL_DIR/server/database.js << 'DATABASEJS'
+import Database from 'better-sqlite3';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dbPath = path.join(__dirname, '..', 'data', 'dockpilot.db');
+
+// Ensure data directory exists
+import fs from 'fs';
+const dataDir = path.join(__dirname, '..', 'data');
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const db = new Database(dbPath);
+
+// Initialize tables
+db.exec(`
+    CREATE TABLE IF NOT EXISTS installed_apps (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        category TEXT,
+        image TEXT NOT NULL,
+        icon_url TEXT,
+        container_id TEXT,
+        status TEXT DEFAULT 'stopped',
+        ports TEXT,
+        environment TEXT,
+        volumes TEXT,
+        installed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        id TEXT PRIMARY KEY DEFAULT 'default',
+        server_name TEXT DEFAULT 'DockPilot-Home',
+        web_port INTEGER DEFAULT 8080,
+        start_on_boot INTEGER DEFAULT 1,
+        auto_update INTEGER DEFAULT 0,
+        analytics INTEGER DEFAULT 1,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT OR IGNORE INTO settings (id) VALUES ('default');
+`);
+
+export default db;
+DATABASEJS
+
+# Create Docker service
+cat > $INSTALL_DIR/server/docker.js << 'DOCKERJS'
+import Docker from 'dockerode';
+
+export const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+export async function isDockerAvailable() {
+    try {
+        await docker.ping();
+        return true;
+    } catch (error) {
+        console.log('Docker not available:', error.message);
+        return false;
+    }
+}
+
+export async function listContainers(all = true) {
+    try {
+        const containers = await docker.listContainers({ all });
+        return containers.map(container => ({
+            id: container.Id.substring(0, 12),
+            name: container.Names[0]?.replace('/', '') || 'unknown',
+            image: container.Image,
+            state: container.State,
+            status: container.Status,
+            ports: container.Ports.map(p => 
+                p.PublicPort ? `${p.IP || '0.0.0.0'}:${p.PublicPort}->${p.PrivatePort}/${p.Type}` : `${p.PrivatePort}/${p.Type}`
+            ).join(', '),
+            created: new Date(container.Created * 1000).toISOString(),
+        }));
+    } catch (error) {
+        console.error('Error listing containers:', error);
+        return [];
+    }
+}
+
+export async function listImages() {
+    try {
+        const images = await docker.listImages();
+        return images.map(image => {
+            const repoTags = image.RepoTags || ['<none>:<none>'];
+            const [repository, tag] = repoTags[0].split(':');
+            return {
+                id: image.Id,
+                repository: repository || '<none>',
+                tag: tag || '<none>',
+                size: formatBytes(image.Size),
+                created: new Date(image.Created * 1000).toLocaleString(),
+            };
+        });
+    } catch (error) {
+        console.error('Error listing images:', error);
+        return [];
+    }
+}
+
+export async function pullImage(imageName) {
+    return new Promise((resolve, reject) => {
+        docker.pull(imageName, (err, stream) => {
+            if (err) { reject(err); return; }
+            docker.modem.followProgress(stream, (err, output) => {
+                if (err) reject(err);
+                else resolve(output);
+            });
+        });
+    });
+}
+
+export async function createAndStartContainer(imageName, containerName, ports = [], environment = {}, volumes = []) {
+    const portBindings = {};
+    const exposedPorts = {};
+
+    ports.forEach(({ container, host }) => {
+        exposedPorts[`${container}/tcp`] = {};
+        portBindings[`${container}/tcp`] = [{ HostPort: host.toString() }];
+    });
+
+    const binds = volumes.map(v => `${v.host}:${v.container}`);
+
+    const container = await docker.createContainer({
+        Image: imageName,
+        name: containerName,
+        Env: Object.entries(environment).map(([key, val]) => `${key}=${val}`),
+        ExposedPorts: exposedPorts,
+        HostConfig: {
+            PortBindings: portBindings,
+            Binds: binds,
+            RestartPolicy: { Name: 'unless-stopped' },
+        },
+    });
+
+    await container.start();
+    return container.id;
+}
+
+export async function startContainer(containerId) {
+    const container = docker.getContainer(containerId);
+    await container.start();
+}
+
+export async function stopContainer(containerId) {
+    const container = docker.getContainer(containerId);
+    await container.stop();
+}
+
+export async function removeContainer(containerId, force = false) {
+    const container = docker.getContainer(containerId);
+    await container.remove({ force });
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i)) + ' ' + sizes[i];
+}
+DOCKERJS
+
+# Create main server
+cat > $INSTALL_DIR/server/index.js << 'SERVERJS'
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import db from './database.js';
+import * as docker from './docker.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+app.use(cors());
+app.use(express.json());
+
+// Serve static frontend files
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// API Routes
+app.get('/api/health', async (req, res) => {
+    const dockerAvailable = await docker.isDockerAvailable();
+    res.json({ status: 'ok', dockerAvailable, timestamp: new Date().toISOString() });
+});
+
+// Containers
+app.get('/api/containers', async (req, res) => {
+    try {
+        const containers = await docker.listContainers(true);
+        res.json(containers);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to list containers' });
+    }
+});
+
+app.post('/api/containers/:id/start', async (req, res) => {
+    try {
+        await docker.startContainer(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to start container' });
+    }
+});
+
+app.post('/api/containers/:id/stop', async (req, res) => {
+    try {
+        await docker.stopContainer(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to stop container' });
+    }
+});
+
+app.delete('/api/containers/:id', async (req, res) => {
+    try {
+        await docker.removeContainer(req.params.id, true);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to remove container' });
+    }
+});
+
+// Images
+app.get('/api/images', async (req, res) => {
+    try {
+        const images = await docker.listImages();
+        res.json(images);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to list images' });
+    }
+});
+
+app.post('/api/images/pull', async (req, res) => {
+    try {
+        const { imageName } = req.body;
+        if (!imageName) return res.status(400).json({ error: 'Image name required' });
+        await docker.pullImage(imageName);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to pull image' });
+    }
+});
+
+// Installed Apps
+app.get('/api/apps', (req, res) => {
+    try {
+        const apps = db.prepare('SELECT * FROM installed_apps').all();
+        // Parse JSON fields
+        const parsed = apps.map(app => ({
+            ...app,
+            ports: app.ports ? JSON.parse(app.ports) : [],
+            environment: app.environment ? JSON.parse(app.environment) : {},
+            volumes: app.volumes ? JSON.parse(app.volumes) : []
+        }));
+        res.json(parsed);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to fetch apps' });
+    }
+});
+
+app.post('/api/apps', async (req, res) => {
+    try {
+        const { id, name, description, category, image, iconColor, ports, environment, volumes } = req.body;
+        
+        const dockerAvailable = await docker.isDockerAvailable();
+        let containerId = null;
+        let status = 'stopped';
+
+        if (dockerAvailable) {
+            try {
+                await docker.pullImage(image);
+                containerId = await docker.createAndStartContainer(image, name, ports || [], environment || {}, volumes || []);
+                status = 'running';
+            } catch (err) {
+                console.error('Docker operation failed:', err);
+            }
+        }
+
+        const stmt = db.prepare(`
+            INSERT INTO installed_apps (id, name, description, category, image, icon_url, container_id, status, ports, environment, volumes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run(id, name, description, category, image, iconColor, containerId, status,
+            JSON.stringify(ports || []), JSON.stringify(environment || {}), JSON.stringify(volumes || []));
+
+        res.json({ id, name, description, category, image, iconColor, containerId, status, ports, environment, volumes });
+    } catch (error) {
+        console.error('Install error:', error);
+        res.status(500).json({ error: 'Failed to install app' });
+    }
+});
+
+app.patch('/api/apps/:id', (req, res) => {
+    try {
+        const updates = req.body;
+        const setClauses = Object.keys(updates).map(key => {
+            if (key === 'iconColor') return 'icon_url = ?';
+            return `${key} = ?`;
+        }).join(', ');
+        const values = Object.values(updates);
+        
+        db.prepare(`UPDATE installed_apps SET ${setClauses} WHERE id = ?`).run(...values, req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update app' });
+    }
+});
+
+app.delete('/api/apps/:id', async (req, res) => {
+    try {
+        const app = db.prepare('SELECT * FROM installed_apps WHERE id = ?').get(req.params.id);
+        if (app?.container_id) {
+            try {
+                await docker.removeContainer(app.container_id, true);
+            } catch (err) {
+                console.error('Container removal failed:', err);
+            }
+        }
+        db.prepare('DELETE FROM installed_apps WHERE id = ?').run(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to uninstall app' });
+    }
+});
+
+// Settings
+app.get('/api/settings', (req, res) => {
+    try {
+        const settings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch settings' });
+    }
+});
+
+app.patch('/api/settings', (req, res) => {
+    try {
+        const { serverName, webPort, startOnBoot, autoUpdate, analytics } = req.body;
+        db.prepare(`
+            UPDATE settings SET 
+                server_name = COALESCE(?, server_name),
+                web_port = COALESCE(?, web_port),
+                start_on_boot = COALESCE(?, start_on_boot),
+                auto_update = COALESCE(?, auto_update),
+                analytics = COALESCE(?, analytics),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = 'default'
+        `).run(serverName, webPort, startOnBoot, autoUpdate, analytics);
+        
+        const settings = db.prepare('SELECT * FROM settings WHERE id = ?').get('default');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update settings' });
+    }
+});
+
+// Fallback to frontend for SPA routing
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`
+╔═══════════════════════════════════════════════════════════════╗
+║                    DockPilot is running!                      ║
+╠═══════════════════════════════════════════════════════════════╣
+║  Web Interface:  http://localhost:${PORT}                        ║
+║  API Endpoint:   http://localhost:${PORT}/api                    ║
+╚═══════════════════════════════════════════════════════════════╝
+    `);
+});
+SERVERJS
+
+# Install dependencies
+echo -e "${GREEN}[6/7]${NC} Installing dependencies..."
+cd $INSTALL_DIR
+npm install --silent
+
+echo -e "${GREEN}[7/7]${NC} Setting up systemd service..."
+
+# Create systemd service
+cat > /etc/systemd/system/dockpilot.service << SYSTEMD
+[Unit]
+Description=DockPilot - Docker GUI Manager
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+ExecStart=/usr/bin/node $INSTALL_DIR/server/index.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=dockpilot
+Environment=NODE_ENV=production
+Environment=PORT=8080
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+
+# Create public directory for frontend (placeholder - will be built)
+mkdir -p $INSTALL_DIR/public
+cat > $INSTALL_DIR/public/index.html << 'FRONTENDHTML'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DockPilot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: 'hsl(222 47% 11%)',
+                        foreground: 'hsl(210 40% 98%)',
+                        card: 'hsl(222 47% 13%)',
+                        primary: 'hsl(217 91% 60%)',
+                        muted: 'hsl(217 19% 20%)',
+                        border: 'hsl(217 19% 27%)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background: hsl(222 47% 11%); color: hsl(210 40% 98%); font-family: system-ui, sans-serif; }
+        .card { background: hsl(222 47% 13% / 0.4); border: 1px solid hsl(217 19% 27% / 0.5); }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="app" class="container mx-auto px-4 py-8 max-w-6xl">
+        <header class="text-center py-12">
+            <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">DockPilot</h1>
+            <p class="text-gray-400">Docker Container Management Made Simple</p>
+        </header>
+        
+        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-12" id="apps-grid">
+            <div class="card rounded-2xl p-6 text-center">
+                <div class="text-4xl mb-4">⏳</div>
+                <p class="text-gray-400">Loading apps...</p>
+            </div>
+        </div>
+
+        <div class="card rounded-2xl p-6 mb-6">
+            <h2 class="text-xl font-bold mb-4">Install New App</h2>
+            <div class="grid gap-4 md:grid-cols-4" id="catalog"></div>
+        </div>
+
+        <div class="card rounded-2xl p-6">
+            <h2 class="text-xl font-bold mb-4">Running Containers</h2>
+            <div id="containers" class="space-y-2"></div>
+        </div>
+    </div>
+
+    <script>
+        const APP_CATALOG = [
+            { id: 'portainer', name: 'Portainer', image: 'portainer/portainer-ce:latest', icon: '🐳', ports: [{ container: 9000, host: 9000 }] },
+            { id: 'nginx', name: 'Nginx', image: 'nginx:latest', icon: '🌐', ports: [{ container: 80, host: 8081 }] },
+            { id: 'pihole', name: 'Pi-hole', image: 'pihole/pihole:latest', icon: '🛡️', ports: [{ container: 80, host: 8053 }] },
+            { id: 'homeassistant', name: 'Home Assistant', image: 'homeassistant/home-assistant:stable', icon: '🏠', ports: [{ container: 8123, host: 8123 }] },
+            { id: 'nextcloud', name: 'Nextcloud', image: 'nextcloud:latest', icon: '☁️', ports: [{ container: 80, host: 8082 }] },
+            { id: 'grafana', name: 'Grafana', image: 'grafana/grafana:latest', icon: '📊', ports: [{ container: 3000, host: 3000 }] },
+            { id: 'redis', name: 'Redis', image: 'redis:alpine', icon: '🔴', ports: [{ container: 6379, host: 6379 }] },
+            { id: 'postgres', name: 'PostgreSQL', image: 'postgres:16', icon: '🐘', ports: [{ container: 5432, host: 5432 }] },
+        ];
+
+        async function loadApps() {
+            try {
+                const res = await fetch('/api/apps');
+                const apps = await res.json();
+                const grid = document.getElementById('apps-grid');
+                
+                if (apps.length === 0) {
+                    grid.innerHTML = '<div class="card rounded-2xl p-6 text-center col-span-full"><p class="text-gray-400">No apps installed. Install one from the catalog below!</p></div>';
+                } else {
+                    grid.innerHTML = apps.map(app => `
+                        <div class="card rounded-2xl p-6 text-center group relative">
+                            <div class="absolute top-4 right-4 w-3 h-3 rounded-full ${app.status === 'running' ? 'bg-green-500' : 'bg-red-500'}"></div>
+                            <div class="text-4xl mb-4">${getIcon(app.name)}</div>
+                            <h3 class="font-bold text-lg">${app.name}</h3>
+                            <p class="text-sm text-gray-400 mb-4">${app.status}</p>
+                            <div class="flex gap-2 justify-center">
+                                <button onclick="toggleApp('${app.id}', '${app.container_id}', '${app.status}')" 
+                                    class="px-4 py-2 rounded-full text-sm ${app.status === 'running' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}">
+                                    ${app.status === 'running' ? 'Stop' : 'Start'}
+                                </button>
+                                <button onclick="uninstallApp('${app.id}')" class="px-4 py-2 rounded-full text-sm bg-red-500/20 text-red-400">Remove</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function getIcon(name) {
+            const icons = { Portainer: '🐳', Nginx: '🌐', 'Pi-hole': '🛡️', 'Home Assistant': '🏠', Nextcloud: '☁️', Grafana: '📊', Redis: '🔴', PostgreSQL: '🐘' };
+            return icons[name] || '📦';
+        }
+
+        async function installApp(app) {
+            try {
+                await fetch('/api/apps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...app, category: 'App', description: '' })
+                });
+                loadApps();
+                loadContainers();
+            } catch (err) {
+                alert('Failed to install: ' + err.message);
+            }
+        }
+
+        async function toggleApp(id, containerId, status) {
+            if (!containerId) return alert('No container ID');
+            const action = status === 'running' ? 'stop' : 'start';
+            await fetch(`/api/containers/${containerId}/${action}`, { method: 'POST' });
+            await fetch(`/api/apps/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: action === 'start' ? 'running' : 'stopped' })
+            });
+            loadApps();
+            loadContainers();
+        }
+
+        async function uninstallApp(id) {
+            if (confirm('Remove this app?')) {
+                await fetch(`/api/apps/${id}`, { method: 'DELETE' });
+                loadApps();
+                loadContainers();
+            }
+        }
+
+        async function loadContainers() {
+            try {
+                const res = await fetch('/api/containers');
+                const containers = await res.json();
+                document.getElementById('containers').innerHTML = containers.length ? containers.map(c => `
+                    <div class="flex items-center justify-between p-3 rounded-lg bg-white/5">
+                        <div>
+                            <span class="font-medium">${c.name}</span>
+                            <span class="text-sm text-gray-400 ml-2">${c.image}</span>
+                        </div>
+                        <span class="px-2 py-1 rounded text-xs ${c.state === 'running' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${c.state}</span>
+                    </div>
+                `).join('') : '<p class="text-gray-400">No containers running</p>';
+            } catch (err) {
+                document.getElementById('containers').innerHTML = '<p class="text-red-400">Failed to load containers</p>';
+            }
+        }
+
+        // Render catalog
+        document.getElementById('catalog').innerHTML = APP_CATALOG.map(app => `
+            <button onclick='installApp(${JSON.stringify(app)})' class="card rounded-xl p-4 text-left hover:bg-white/5 transition">
+                <div class="text-2xl mb-2">${app.icon}</div>
+                <div class="font-medium">${app.name}</div>
+            </button>
+        `).join('');
+
+        loadApps();
+        loadContainers();
+        setInterval(() => { loadApps(); loadContainers(); }, 10000);
+    </script>
+</body>
+</html>
+FRONTENDHTML
+
+# Reload systemd and start service
+systemctl daemon-reload
+systemctl enable dockpilot
+systemctl start dockpilot
+
+echo ""
+echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                                                               ║${NC}"
+echo -e "${GREEN}║           DockPilot installed successfully! 🎉               ║${NC}"
+echo -e "${GREEN}║                                                               ║${NC}"
+echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║                                                               ║${NC}"
+echo -e "${GREEN}║   Web Interface:  ${BLUE}http://localhost:8080${GREEN}                    ║${NC}"
+echo -e "${GREEN}║   API Endpoint:   ${BLUE}http://localhost:8080/api${GREEN}                ║${NC}"
+echo -e "${GREEN}║                                                               ║${NC}"
+echo -e "${GREEN}║   Manage service:                                             ║${NC}"
+echo -e "${GREEN}║   ${YELLOW}sudo systemctl status dockpilot${GREEN}                          ║${NC}"
+echo -e "${GREEN}║   ${YELLOW}sudo systemctl restart dockpilot${GREEN}                         ║${NC}"
+echo -e "${GREEN}║   ${YELLOW}sudo systemctl stop dockpilot${GREEN}                            ║${NC}"
+echo -e "${GREEN}║                                                               ║${NC}"
+echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${YELLOW}Note: Log out and back in for docker group changes to take effect.${NC}"
+echo ""
