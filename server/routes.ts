@@ -481,5 +481,98 @@ export async function registerRoutes(
     }
   });
 
+  // ====== File Browser Routes (Protected) ======
+  
+  const fs = await import('fs');
+  const pathModule = await import('path');
+  
+  // Allowed base paths for browsing
+  const ALLOWED_PATHS = [
+    '/opt/dockpilot/data',
+    '/home',
+    '/root',
+    '/var/lib/docker/volumes',
+    process.cwd()
+  ];
+
+  function isPathAllowed(targetPath: string): boolean {
+    const resolved = pathModule.default.resolve(targetPath);
+    return ALLOWED_PATHS.some(allowed => resolved.startsWith(allowed));
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(1) + ' GB';
+  }
+
+  function getFileType(name: string, isDir: boolean): string {
+    if (isDir) return 'folder';
+    const ext = pathModule.default.extname(name).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'].includes(ext)) return 'image';
+    if (['.mp4', '.mkv', '.avi', '.mov', '.webm'].includes(ext)) return 'video';
+    if (['.mp3', '.wav', '.flac', '.ogg', '.m4a'].includes(ext)) return 'audio';
+    return 'file';
+  }
+
+  // List files in directory
+  app.get("/api/files", requireAuth, async (req, res) => {
+    try {
+      const requestedPath = (req.query.path as string) || process.cwd();
+      const resolvedPath = pathModule.default.resolve(requestedPath);
+
+      if (!isPathAllowed(resolvedPath)) {
+        return res.status(403).json({ error: 'Access denied to this path' });
+      }
+
+      if (!fs.existsSync(resolvedPath)) {
+        return res.status(404).json({ error: 'Path not found' });
+      }
+
+      const stats = fs.statSync(resolvedPath);
+      if (!stats.isDirectory()) {
+        return res.status(400).json({ error: 'Path is not a directory' });
+      }
+
+      const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+      const files = entries
+        .filter(entry => !entry.name.startsWith('.'))
+        .map(entry => {
+          const fullPath = pathModule.default.join(resolvedPath, entry.name);
+          let size = '-';
+          let modified = '';
+          try {
+            const stat = fs.statSync(fullPath);
+            size = entry.isDirectory() ? '-' : formatFileSize(stat.size);
+            modified = stat.mtime.toLocaleString();
+          } catch (e) {}
+          
+          return {
+            id: Buffer.from(fullPath).toString('base64'),
+            name: entry.name,
+            path: fullPath,
+            type: getFileType(entry.name, entry.isDirectory()),
+            size,
+            modified
+          };
+        })
+        .sort((a, b) => {
+          if (a.type === 'folder' && b.type !== 'folder') return -1;
+          if (a.type !== 'folder' && b.type === 'folder') return 1;
+          return a.name.localeCompare(b.name);
+        });
+
+      res.json({
+        currentPath: resolvedPath,
+        parentPath: pathModule.default.dirname(resolvedPath),
+        files
+      });
+    } catch (error) {
+      console.error('File list error:', error);
+      res.status(500).json({ error: 'Failed to list files' });
+    }
+  });
+
   return httpServer;
 }
