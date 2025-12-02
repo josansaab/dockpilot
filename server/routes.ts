@@ -1,9 +1,10 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertInstalledAppSchema, insertSettingsSchema } from "@shared/schema";
+import { insertInstalledAppSchema, insertSettingsSchema, createRaidSchema, createZfsPoolSchema } from "@shared/schema";
 import * as docker from "./docker";
 import * as systemMetrics from "./systemMetrics";
+import * as storageManager from "./storageManager";
 import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
@@ -478,6 +479,99 @@ export async function registerRoutes(
       }
     } catch (error) {
       res.status(500).json({ error: 'Failed to create snapshot' });
+    }
+  });
+
+  // ====== Storage Manager Routes (Protected) ======
+
+  app.get("/api/storage/discovery", requireAuth, async (req, res) => {
+    try {
+      const discovery = await storageManager.discoverDisks();
+      res.json(discovery);
+    } catch (error) {
+      console.error('Storage discovery error:', error);
+      res.status(500).json({ error: 'Failed to discover storage devices' });
+    }
+  });
+
+  app.post("/api/storage/raid/create", requireAuth, async (req, res) => {
+    try {
+      const validation = createRaidSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: validation.error.errors[0]?.message || 'Invalid request' });
+      }
+
+      const { name, level, devices, filesystem } = validation.data;
+      const result = await storageManager.createRaidArray(name, level, devices, filesystem);
+      
+      if (result.success) {
+        res.json({ success: true, taskId: result.taskId });
+      } else {
+        res.status(400).json({ error: result.error });
+      }
+    } catch (error) {
+      console.error('RAID creation error:', error);
+      res.status(500).json({ error: 'Failed to create RAID array' });
+    }
+  });
+
+  app.post("/api/storage/zfs/create", requireAuth, async (req, res) => {
+    try {
+      const validation = createZfsPoolSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: validation.error.errors[0]?.message || 'Invalid request' });
+      }
+
+      const { name, layout, devices } = validation.data;
+      const result = await storageManager.createZfsPool(name, layout, devices);
+      
+      if (result.success) {
+        res.json({ success: true, taskId: result.taskId });
+      } else {
+        res.status(400).json({ error: result.error });
+      }
+    } catch (error) {
+      console.error('ZFS pool creation error:', error);
+      res.status(500).json({ error: 'Failed to create ZFS pool' });
+    }
+  });
+
+  app.get("/api/storage/tasks", requireAuth, async (req, res) => {
+    try {
+      const tasks = storageManager.getAllTasks();
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get tasks' });
+    }
+  });
+
+  app.get("/api/storage/tasks/:taskId", requireAuth, async (req, res) => {
+    try {
+      const task = storageManager.getTask(req.params.taskId);
+      if (!task) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get task' });
+    }
+  });
+
+  app.get("/api/storage/progress/raid", requireAuth, async (req, res) => {
+    try {
+      const progress = await storageManager.getRaidSyncProgress();
+      res.json(progress);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get RAID progress' });
+    }
+  });
+
+  app.get("/api/storage/progress/zfs", requireAuth, async (req, res) => {
+    try {
+      const progress = await storageManager.getZfsScrubProgress();
+      res.json(progress);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get ZFS progress' });
     }
   });
 
