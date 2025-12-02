@@ -1,6 +1,6 @@
 import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "@/components/layout/Layout";
-import { MOCK_IMAGES } from "@/data/mockDocker";
 import { 
   Table, 
   TableBody, 
@@ -9,16 +9,19 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
-  Download, 
   Trash2, 
-  Play, 
+  RefreshCw, 
   Search,
+  Download,
+  Loader2,
   HardDrive
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { imageApi } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -30,54 +33,72 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+}
+
 export default function Images() {
-  const [images, setImages] = useState(MOCK_IMAGES);
   const [search, setSearch] = useState("");
   const [pullImageName, setPullImageName] = useState("");
-  const [isPulling, setIsPulling] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const filteredImages = images.filter(img => 
+  const { data: images = [], isLoading, refetch } = useQuery({
+    queryKey: ['images'],
+    queryFn: async () => {
+      const response = await imageApi.list();
+      return response.data.map((img: any) => ({
+        id: img.Id || img.id || '',
+        repository: img.RepoTags?.[0]?.split(':')[0] || img.repository || '<none>',
+        tag: img.RepoTags?.[0]?.split(':')[1] || img.tag || '<none>',
+        size: img.Size ? formatSize(img.Size) : img.size || '0 MB',
+        created: img.Created ? new Date(img.Created * 1000).toLocaleDateString() : img.created || ''
+      }));
+    },
+    refetchInterval: 30000,
+  });
+
+  const pullMutation = useMutation({
+    mutationFn: (imageName: string) => imageApi.pull(imageName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['images'] });
+      toast({ title: "Image Pulled", description: "Image pulled successfully." });
+      setIsDialogOpen(false);
+      setPullImageName("");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to pull image.", variant: "destructive" });
+    }
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => imageApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['images'] });
+      toast({ title: "Image Removed", description: "Image removed successfully." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to remove image.", variant: "destructive" });
+    }
+  });
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(1) + ' GB';
+  }
+
+  const filteredImages = images.filter((img: DockerImage) => 
     img.repository.toLowerCase().includes(search.toLowerCase()) || 
-    img.tag.toLowerCase().includes(search.toLowerCase())
+    img.tag.toLowerCase().includes(search.toLowerCase()) ||
+    img.id.includes(search)
   );
-
-  const handlePull = async () => {
-    if (!pullImageName) return;
-    
-    setIsPulling(true);
-    
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const [repo, tag] = pullImageName.split(":");
-    
-    const newImage = {
-      id: `sha256:${Math.random().toString(16).substring(2, 12)}`,
-      repository: repo,
-      tag: tag || "latest",
-      size: "150MB",
-      created: "Just now"
-    };
-    
-    setImages([newImage, ...images]);
-    setIsPulling(false);
-    setPullImageName("");
-    
-    toast({
-      title: "Image Pulled",
-      description: `Successfully pulled ${pullImageName}`,
-    });
-  };
-
-  const handleDelete = (id: string) => {
-    setImages(prev => prev.filter(img => img.id !== id));
-    toast({
-      title: "Image Deleted",
-      description: "Docker image has been removed from local storage.",
-      variant: "destructive"
-    });
-  };
 
   return (
     <Layout>
@@ -85,7 +106,7 @@ export default function Images() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Images</h1>
-            <p className="text-muted-foreground">Local Docker image library.</p>
+            <p className="text-muted-foreground">Manage your Docker images.</p>
           </div>
           <div className="flex items-center gap-2 w-full md:w-auto">
             <div className="relative flex-1 md:w-64">
@@ -95,12 +116,16 @@ export default function Images() {
                 className="pl-9"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                data-testid="input-search-images"
               />
             </div>
+            <Button variant="outline" size="icon" onClick={() => refetch()} data-testid="button-refresh-images">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
             
-            <Dialog>
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button data-testid="button-pull-image">
                   <Download className="mr-2 h-4 w-4" /> Pull Image
                 </Button>
               </DialogTrigger>
@@ -119,12 +144,19 @@ export default function Images() {
                       placeholder="e.g. nginx:latest" 
                       value={pullImageName}
                       onChange={(e) => setPullImageName(e.target.value)}
+                      data-testid="input-pull-image-name"
                     />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button onClick={handlePull} disabled={isPulling}>
-                    {isPulling ? "Pulling..." : "Pull Image"}
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                  <Button 
+                    onClick={() => pullMutation.mutate(pullImageName)}
+                    disabled={!pullImageName || pullMutation.isPending}
+                    data-testid="button-confirm-pull"
+                  >
+                    {pullMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Pull Image
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -133,60 +165,63 @@ export default function Images() {
         </div>
 
         <div className="border rounded-lg bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[300px]">Repository</TableHead>
-                <TableHead>Tag</TableHead>
-                <TableHead>Image ID</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredImages.map((image) => (
-                <TableRow key={image.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="h-4 w-4 text-muted-foreground" />
-                      {image.repository}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="bg-secondary px-2 py-1 rounded text-xs font-mono">
-                      {image.tag}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {image.id.substring(0, 19)}...
-                  </TableCell>
-                  <TableCell className="text-sm">{image.size}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{image.created}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
+          {isLoading ? (
+            <div className="flex items-center justify-center p-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredImages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 text-center">
+              <p className="text-muted-foreground">No images found.</p>
+              <p className="text-sm text-muted-foreground mt-1">Pull an image or install apps to download images.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[300px]">Repository</TableHead>
+                  <TableHead>Tag</TableHead>
+                  <TableHead>Image ID</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredImages.map((image: DockerImage) => (
+                  <TableRow key={image.id} data-testid={`row-image-${image.id}`}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="h-4 w-4 text-muted-foreground" />
+                        {image.repository}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="font-mono">
+                        {image.tag}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {image.id.replace('sha256:', '').substring(0, 12)}...
+                    </TableCell>
+                    <TableCell className="text-sm">{image.size}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{image.created}</TableCell>
+                    <TableCell className="text-right">
                       <Button 
                         variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
-                        onClick={() => toast({ title: "Run Container", description: `Starting container from ${image.repository}:${image.tag}` })}
-                      >
-                        <Play className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                        size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDelete(image.id)}
+                        onClick={() => removeMutation.mutate(image.id)}
+                        disabled={removeMutation.isPending}
+                        data-testid={`button-remove-image-${image.id}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </div>
     </Layout>
