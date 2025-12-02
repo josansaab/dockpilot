@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import type { 
   DiskInfo, 
   RaidArray, 
@@ -10,9 +10,45 @@ import type {
 
 const activeTasks: Map<string, StorageTask> = new Map();
 const taskListeners: Map<string, ((task: StorageTask) => void)[]> = new Map();
+const MAX_TASKS = 100;
 
 function generateTaskId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function cleanupOldTasks() {
+  const tasks = Array.from(activeTasks.entries());
+  const completedTasks = tasks.filter(([_, t]) => t.status === 'completed' || t.status === 'failed');
+  if (completedTasks.length > MAX_TASKS) {
+    const toRemove = completedTasks
+      .sort((a, b) => new Date(a[1].startedAt).getTime() - new Date(b[1].startedAt).getTime())
+      .slice(0, completedTasks.length - MAX_TASKS);
+    toRemove.forEach(([id]) => {
+      activeTasks.delete(id);
+      taskListeners.delete(id);
+    });
+  }
+}
+
+function runCommand(command: string, args: string[]): { success: boolean; stdout: string; stderr: string } {
+  try {
+    const result = spawnSync(command, args, { encoding: 'utf8', timeout: 60000 });
+    return {
+      success: result.status === 0,
+      stdout: result.stdout || '',
+      stderr: result.stderr || ''
+    };
+  } catch (e: any) {
+    return { success: false, stdout: '', stderr: e.message || 'Command failed' };
+  }
+}
+
+function validateName(name: string): boolean {
+  return /^[a-zA-Z0-9_-]{1,32}$/.test(name);
+}
+
+function validateDevicePath(device: string): boolean {
+  return /^\/dev\/(sd[a-z]+|nvme\d+n\d+(p\d+)?|vd[a-z]+)$/.test(device);
 }
 
 function updateTask(taskId: string, updates: Partial<StorageTask>) {
@@ -274,10 +310,8 @@ function formatBytes(bytes: number): string {
 }
 
 function validateDevices(devices: string[]): { valid: boolean; error?: string } {
-  const validPattern = /^\/dev\/(sd[a-z]+|nvme\d+n\d+|vd[a-z]+)$/;
-  
   for (const device of devices) {
-    if (!validPattern.test(device)) {
+    if (!validateDevicePath(device)) {
       return { valid: false, error: `Invalid device path: ${device}` };
     }
   }
@@ -346,6 +380,10 @@ export async function createRaidArray(
     return { success: false, error: 'mdadm is not installed' };
   }
   
+  if (!validateName(name)) {
+    return { success: false, error: 'Invalid array name. Use only letters, numbers, underscores, and hyphens (max 32 chars)' };
+  }
+  
   const validation = validateDevices(devices);
   if (!validation.valid) {
     return { success: false, error: validation.error };
@@ -359,6 +397,8 @@ export async function createRaidArray(
   if (level === 'raid10' && devices.length % 2 !== 0) {
     return { success: false, error: 'RAID10 requires an even number of devices' };
   }
+  
+  cleanupOldTasks();
   
   const taskId = generateTaskId();
   const task: StorageTask = {
@@ -374,30 +414,41 @@ export async function createRaidArray(
   
   const mdLevel = level.replace('raid', '');
   const mdPath = `/dev/md/${name}`;
-  const cmd = `mdadm --create ${mdPath} --level=${mdLevel} --raid-devices=${devices.length} ${devices.join(' ')} --run`;
   
   (async () => {
     try {
       updateTask(taskId, { message: 'Wiping device signatures...', progress: 10 });
       
       for (const device of devices) {
-        execCommand(`wipefs -a ${device} 2>/dev/null`);
+        runCommand('wipefs', ['-a', device]);
       }
       
       updateTask(taskId, { message: 'Creating RAID array...', progress: 20 });
       
-      execSync(cmd, { encoding: 'utf8', stdio: 'pipe' });
+      const mdadmArgs = [
+        '--create', mdPath,
+        `--level=${mdLevel}`,
+        `--raid-devices=${devices.length}`,
+        ...devices,
+        '--run'
+      ];
+      
+      const result = runCommand('mdadm', mdadmArgs);
+      if (!result.success) {
+        throw new Error(result.stderr || 'mdadm command failed');
+      }
       
       updateTask(taskId, { message: 'Updating mdadm configuration...', progress: 60 });
       
-      try {
-        execSync('mdadm --detail --scan >> /etc/mdadm/mdadm.conf', { encoding: 'utf8' });
-        execSync('update-initramfs -u 2>/dev/null', { encoding: 'utf8' });
-      } catch (e) {}
+      runCommand('sh', ['-c', 'mdadm --detail --scan >> /etc/mdadm/mdadm.conf']);
+      runCommand('update-initramfs', ['-u']);
       
-      if (filesystem !== 'none') {
+      if (filesystem === 'ext4' || filesystem === 'xfs') {
         updateTask(taskId, { message: `Formatting with ${filesystem}...`, progress: 80 });
-        execSync(`mkfs.${filesystem} ${mdPath}`, { encoding: 'utf8' });
+        const mkfsResult = runCommand(`mkfs.${filesystem}`, [mdPath]);
+        if (!mkfsResult.success) {
+          throw new Error(mkfsResult.stderr || 'Formatting failed');
+        }
       }
       
       updateTask(taskId, { 
@@ -429,6 +480,10 @@ export async function createZfsPool(
     return { success: false, error: 'ZFS is not installed. Install with: apt install zfsutils-linux' };
   }
   
+  if (!validateName(name)) {
+    return { success: false, error: 'Invalid pool name. Use only letters, numbers, underscores, and hyphens (max 32 chars)' };
+  }
+  
   const validation = validateDevices(devices);
   if (!validation.valid) {
     return { success: false, error: validation.error };
@@ -438,6 +493,8 @@ export async function createZfsPool(
   if (devices.length < minDevices) {
     return { success: false, error: `${layout} layout requires at least ${minDevices} devices` };
   }
+  
+  cleanupOldTasks();
   
   const taskId = generateTaskId();
   const task: StorageTask = {
@@ -451,23 +508,23 @@ export async function createZfsPool(
   };
   activeTasks.set(taskId, task);
   
-  let cmd = `zpool create -f ${name}`;
+  const zpoolArgs: string[] = ['create', '-f', name];
   
   switch (layout) {
     case 'single':
-      cmd += ` ${devices.join(' ')}`;
+      zpoolArgs.push(...devices);
       break;
     case 'mirror':
-      cmd += ` mirror ${devices.join(' ')}`;
+      zpoolArgs.push('mirror', ...devices);
       break;
     case 'raidz1':
-      cmd += ` raidz1 ${devices.join(' ')}`;
+      zpoolArgs.push('raidz1', ...devices);
       break;
     case 'raidz2':
-      cmd += ` raidz2 ${devices.join(' ')}`;
+      zpoolArgs.push('raidz2', ...devices);
       break;
     case 'raidz3':
-      cmd += ` raidz3 ${devices.join(' ')}`;
+      zpoolArgs.push('raidz3', ...devices);
       break;
   }
   
@@ -476,15 +533,18 @@ export async function createZfsPool(
       updateTask(taskId, { message: 'Wiping device signatures...', progress: 20 });
       
       for (const device of devices) {
-        execCommand(`wipefs -a ${device} 2>/dev/null`);
+        runCommand('wipefs', ['-a', device]);
       }
       
       updateTask(taskId, { message: 'Creating ZFS pool...', progress: 50 });
       
-      execSync(cmd, { encoding: 'utf8', stdio: 'pipe' });
+      const result = runCommand('zpool', zpoolArgs);
+      if (!result.success) {
+        throw new Error(result.stderr || 'zpool create failed');
+      }
       
       updateTask(taskId, { message: 'Enabling compression...', progress: 80 });
-      execCommand(`zfs set compression=lz4 ${name}`);
+      runCommand('zfs', ['set', 'compression=lz4', name]);
       
       updateTask(taskId, {
         status: 'completed',

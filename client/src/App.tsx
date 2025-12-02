@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import AppStore from "@/pages/AppStore";
 import FileManager from "@/pages/FileManager";
+import Storage from "@/pages/Storage";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
@@ -23,6 +24,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/store" component={AppStore} />
+      <Route path="/storage" component={Storage} />
       <Route path="/files" component={FileManager} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />

@@ -7,7 +7,8 @@ import {
   Settings,
   Cpu,
   HardDrive,
-  Wifi
+  Wifi,
+  Database
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
@@ -19,6 +20,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { icon: LayoutGrid, label: "Dashboard", href: "/" },
     { icon: ShoppingBag, label: "App Store", href: "/store" },
+    { icon: Database, label: "Storage", href: "/storage" },
     { icon: FolderOpen, label: "Files", href: "/files" },
     { icon: Settings, label: "Settings", href: "/settings" },
   ];
