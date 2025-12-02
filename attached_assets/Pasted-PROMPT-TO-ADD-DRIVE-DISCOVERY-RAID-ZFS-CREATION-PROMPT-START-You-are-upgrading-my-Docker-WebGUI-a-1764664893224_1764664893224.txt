@@ -1,0 +1,138 @@
+PROMPT TO ADD DRIVE DISCOVERY + RAID/ZFS CREATION
+
+PROMPT START
+You are upgrading my Docker WebGUI application.
+Add a new module called Storage Manager with the following capabilities:
+
+1. Detect Available Drives
+
+Scan the server for unmounted, unused physical disks.
+
+Detect devices such as /dev/sda, /dev/sdb, /dev/nvme0n1, etc.
+
+For each drive, display:
+
+device name
+
+size
+
+model
+
+serial number
+
+filesystem (if any)
+
+whether it is part of any existing RAID/ZFS pool
+
+Use commands like:
+
+lsblk -o NAME,SIZE,MODEL,SERIAL,FSTYPE,MOUNTPOINT
+
+blkid
+
+zpool status
+
+mdadm --detail --scan
+
+Return results in JSON to the frontend.
+
+2. Create RAID Arrays (mdadm)
+
+Add a UI that allows selecting multiple drives and choosing RAID levels:
+
+Supported RAID:
+
+RAID 0
+
+RAID 1
+
+RAID 5
+
+RAID 6
+
+RAID 10
+
+Backend requirements:
+
+Validate that the number of selected drives is compatible with chosen RAID level.
+
+Build the command for array creation, e.g.:
+
+mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sdb /dev/sdc
+
+
+Format the array (ext4, xfs, or leave unformatted).
+
+Update /etc/mdadm/mdadm.conf automatically.
+
+Provide real-time progress updates using /proc/mdstat.
+
+3. Create ZFS Pools
+
+Add a UI option for ZFS pool creation.
+
+Requirements:
+
+Detect if ZFS is installed; if not, display a message.
+
+Allow choosing layout:
+
+Single
+
+Mirror
+
+RAIDZ1
+
+RAIDZ2
+
+RAIDZ3
+
+Backend must build a proper command, for example:
+
+zpool create mypool mirror /dev/sdb /dev/sdc
+
+
+or:
+
+zpool create mypool raidz1 /dev/sdb /dev/sdc /dev/sdd /dev/sde
+
+
+Detect existing ZFS pools and display their status.
+
+4. UI Requirements
+
+Add a new tab named "Storage" or "Disks & RAID" with:
+
+List of available drives
+
+Buttons:
+
+“Create RAID Array”
+
+“Create ZFS Pool”
+
+Modal windows for selecting drives and RAID/ZFS type
+
+Progress pop-ups for RAID building or ZFS resilvering
+
+5. Security
+
+All backend operations must require admin authentication.
+
+Validate drive names to prevent command injection.
+
+Never allow wiping disks that are mounted or used by the OS.
+
+6. Architecture
+
+Backend: Node.js (Express) module storageManager.js
+
+Frontend: Add a React/Vue/Svelte page called Storage.jsx or Storage.html
+
+Use WebSockets for live progress updates.
+
+7. Output
+
+Generate the full backend code, full frontend UI, and any required helper scripts.
+
+PROMPT END
