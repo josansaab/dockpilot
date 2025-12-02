@@ -96,8 +96,15 @@ git clone --depth 1 $GITHUB_REPO $APP_DIR
 
 echo -e "${GREEN}[6/7]${NC} Installing Node.js dependencies..."
 cd $APP_DIR
+
+# Install build tools for native modules (better-sqlite3)
+apt install -y -qq build-essential python3
+
 npm install --production --silent
-npm install systeminformation --save --silent
+npm install systeminformation better-sqlite3 --save --silent
+
+# Rebuild native modules
+npm rebuild better-sqlite3 --silent 2>/dev/null || true
 
 # Create data directory
 mkdir -p $APP_DIR/data
