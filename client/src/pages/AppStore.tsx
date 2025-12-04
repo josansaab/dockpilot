@@ -16,6 +16,7 @@ import { appApi } from "@/lib/api";
 export default function AppStore() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
+  const [installingAppId, setInstallingAppId] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -47,7 +48,7 @@ export default function AppStore() {
         description: app.description,
         category: app.category,
         image: app.image,
-        iconColor: app.iconUrl,
+        icon: app.iconUrl,
         ports: defaultPorts,
         environment: {},
         volumes: [],
@@ -58,6 +59,7 @@ export default function AppStore() {
       return response.data;
     },
     onSuccess: (data) => {
+      setInstallingAppId(null);
       queryClient.invalidateQueries({ queryKey: ['apps'] });
       toast({
         title: "Installation Complete",
@@ -65,16 +67,19 @@ export default function AppStore() {
         className: "border-green-500/50 text-green-500"
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      setInstallingAppId(null);
+      const errorMessage = error.response?.data?.error || "Failed to install the application. Please try again.";
       toast({
         title: "Installation Failed",
-        description: "Failed to install the application. Please try again.",
+        description: errorMessage,
         variant: "destructive"
       });
     },
   });
 
   const handleInstall = async (app: AppStoreItem) => {
+    setInstallingAppId(app.id);
     toast({
       title: "Starting Installation",
       description: `Installing ${app.name}...`,
@@ -164,15 +169,15 @@ export default function AppStore() {
                  </div>
                  <Button 
                    onClick={() => handleInstall(app)}
-                   disabled={installMutation.isPending}
+                   disabled={installingAppId === app.id}
                    size="sm"
                    className={cn(
                      "rounded-full px-6 transition-all duration-300",
-                     installMutation.isPending ? "w-full" : ""
+                     installingAppId === app.id ? "w-full" : ""
                    )}
                    data-testid={`button-install-${app.id}`}
                  >
-                   {installMutation.isPending ? (
+                   {installingAppId === app.id ? (
                      "Installing..." 
                    ) : (
                      "Install"
