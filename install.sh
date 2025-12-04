@@ -62,6 +62,11 @@ apt update -qq
 echo -e "${GREEN}[2/7]${NC} Installing dependencies..."
 apt install -y -qq curl git
 
+# Install storage management tools (RAID and ZFS)
+echo -e "${GREEN}[2/7]${NC} Installing storage management tools..."
+apt install -y -qq mdadm
+apt install -y -qq zfsutils-linux 2>/dev/null || echo -e "${YELLOW}ZFS not available on this system (kernel module may be missing)${NC}"
+
 # Install Node.js if not present or version is too old
 if ! command -v node &> /dev/null || [[ $(node -v | cut -d. -f1 | tr -d 'v') -lt 18 ]]; then
     echo -e "${GREEN}[2/7]${NC} Installing Node.js 20..."
