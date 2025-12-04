@@ -332,15 +332,19 @@ export async function registerRoutes(
   // Install a new app
   app.post("/api/apps", requireAuth, async (req, res) => {
     try {
+      console.log('Install request body:', JSON.stringify(req.body));
       const parsed = insertInstalledAppSchema.parse(req.body);
+      console.log('Parsed app:', parsed.name);
       
       const dockerAvailable = await docker.isDockerAvailable();
+      console.log('Docker available:', dockerAvailable);
       
       let containerId: string | null = null;
       let status = 'stopped';
       
       if (dockerAvailable) {
         // Pull the image and create container if Docker is available
+        console.log('Pulling image:', parsed.image);
         await docker.pullImage(parsed.image);
         containerId = await docker.createAndStartContainer(
           parsed.image,
@@ -353,16 +357,21 @@ export async function registerRoutes(
       }
       
       // Save to database (works even without Docker for demo purposes)
+      console.log('Saving app to database...');
       const app = await storage.createInstalledApp({
         ...parsed,
         containerId,
         status
       });
       
+      console.log('App saved successfully:', app.id);
       res.json(app);
-    } catch (error) {
-      console.error('Install error:', error);
-      res.status(500).json({ error: "Failed to install app" });
+    } catch (error: any) {
+      console.error('Install error:', error.message || error);
+      if (error.errors) {
+        console.error('Validation errors:', JSON.stringify(error.errors));
+      }
+      res.status(500).json({ error: error.message || "Failed to install app" });
     }
   });
 
