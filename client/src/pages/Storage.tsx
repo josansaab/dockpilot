@@ -193,15 +193,49 @@ export default function Storage() {
               <RefreshCw className="h-4 w-4" />
             </Button>
             <Button 
-              onClick={() => setIsRaidDialogOpen(true)}
-              disabled={availableDisks.length < 2 || !discovery?.mdadmAvailable}
+              onClick={() => {
+                if (!discovery?.mdadmAvailable) {
+                  toast({ 
+                    title: "mdadm Not Installed", 
+                    description: "Install mdadm with: apt install mdadm", 
+                    variant: "destructive" 
+                  });
+                  return;
+                }
+                if (availableDisks.length < 2) {
+                  toast({ 
+                    title: "Not Enough Disks", 
+                    description: "RAID requires at least 2 available disks", 
+                    variant: "destructive" 
+                  });
+                  return;
+                }
+                setIsRaidDialogOpen(true);
+              }}
               data-testid="button-create-raid"
             >
               <Plus className="mr-2 h-4 w-4" /> Create RAID
             </Button>
             <Button 
-              onClick={() => setIsZfsDialogOpen(true)}
-              disabled={availableDisks.length < 1 || !discovery?.zfsAvailable}
+              onClick={() => {
+                if (!discovery?.zfsAvailable) {
+                  toast({ 
+                    title: "ZFS Not Installed", 
+                    description: "Install ZFS with: apt install zfsutils-linux", 
+                    variant: "destructive" 
+                  });
+                  return;
+                }
+                if (availableDisks.length < 1) {
+                  toast({ 
+                    title: "No Available Disks", 
+                    description: "No unformatted disks found for ZFS pool", 
+                    variant: "destructive" 
+                  });
+                  return;
+                }
+                setIsZfsDialogOpen(true);
+              }}
               data-testid="button-create-zfs"
             >
               <Plus className="mr-2 h-4 w-4" /> Create ZFS Pool
