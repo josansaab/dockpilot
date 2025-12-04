@@ -105,8 +105,10 @@ cd $APP_DIR
 # Install build tools for native modules (better-sqlite3)
 apt install -y -qq build-essential python3
 
-npm install --production --silent
-npm install systeminformation better-sqlite3 --save --silent
+npm install --silent
+
+# Install runtime dependencies that are marked as external in the build
+npm install better-sqlite3 systeminformation bcryptjs dockerode cookie-parser --save --silent
 
 # Rebuild native modules
 npm rebuild better-sqlite3 --silent 2>/dev/null || true

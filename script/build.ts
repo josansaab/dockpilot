@@ -8,7 +8,9 @@ const allowlist = [
   "@google/generative-ai",
   "@neondatabase/serverless",
   "axios",
+  "bcryptjs",
   "connect-pg-simple",
+  "cookie-parser",
   "cors",
   "date-fns",
   "drizzle-orm",
@@ -30,6 +32,13 @@ const allowlist = [
   "xlsx",
   "zod",
   "zod-validation-error",
+];
+
+// Native modules that cannot be bundled - must be installed on target system
+const nativeModules = [
+  "better-sqlite3",
+  "systeminformation", 
+  "dockerode",
 ];
 
 async function buildAll() {
