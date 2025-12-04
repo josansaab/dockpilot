@@ -61,9 +61,12 @@ export default function AppStore() {
     onSuccess: (data) => {
       setInstallingAppId(null);
       queryClient.invalidateQueries({ queryKey: ['apps'] });
+      const statusMsg = data.status === 'running' 
+        ? `${data.name} is now running!` 
+        : `${data.name} added (Docker required to start container)`;
       toast({
         title: "Installation Complete",
-        description: `${data.name} has been added to your dashboard.`,
+        description: statusMsg,
         className: "border-green-500/50 text-green-500"
       });
     },
