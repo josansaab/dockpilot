@@ -1,5 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
 import { 
   LayoutGrid, 
   ShoppingBag, 
@@ -13,8 +15,29 @@ import {
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 
+interface SystemStats {
+  cpu: number;
+  memory: number;
+  memTotal: number;
+  memUsed: number;
+  disk: number;
+  diskTotal: string;
+  diskUsed: string;
+  uptime: string;
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  
+  const { data: stats } = useQuery<SystemStats>({
+    queryKey: ['system-stats'],
+    queryFn: async () => {
+      const response = await axios.get('/api/system/stats', { withCredentials: true });
+      return response.data;
+    },
+    refetchInterval: 3000,
+    staleTime: 2000,
+  });
 
   // CasaOS style: Clean, top bar with time, simple icons
   const navItems = [
@@ -38,11 +61,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4 text-xs text-muted-foreground hidden md:flex">
              <div className="flex items-center gap-2">
                <Cpu className="w-3 h-3" />
-               <span>CPU 12%</span>
+               <span>CPU {stats?.cpu ?? '--'}%</span>
              </div>
              <div className="flex items-center gap-2">
                <HardDrive className="w-3 h-3" />
-               <span>RAM 45%</span>
+               <span>RAM {stats?.memory ?? '--'}%</span>
+             </div>
+             <div className="flex items-center gap-2">
+               <span className="text-muted-foreground/70">Uptime: {stats?.uptime ?? '--'}</span>
              </div>
           </div>
         </div>
