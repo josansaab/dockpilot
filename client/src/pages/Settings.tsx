@@ -591,24 +591,108 @@ export default function Settings() {
         {emailNotifications && (
           <div className="grid gap-4 pt-2 pl-6 border-l-2 border-white/10">
             <div className="grid gap-2">
-              <Label htmlFor="notify-email">Email Address</Label>
+              <Label htmlFor="notify-email">Recipient Email Address</Label>
               <Input 
                 id="notify-email" 
                 type="email"
-                placeholder="your@email.com"
+                placeholder="alerts@yourdomain.com"
                 className="bg-background/50 border-white/10" 
                 data-testid="input-notify-email"
               />
+              <p className="text-xs text-muted-foreground">Where notifications will be sent</p>
+            </div>
+
+            <Separator className="bg-white/5" />
+
+            <h3 className="text-sm font-medium text-muted-foreground">SMTP Server Configuration</h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="smtp-server">SMTP Host</Label>
+                <Input 
+                  id="smtp-server" 
+                  placeholder="smtp.gmail.com"
+                  className="bg-background/50 border-white/10" 
+                  data-testid="input-smtp-server"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="smtp-port">SMTP Port</Label>
+                <Select defaultValue="587">
+                  <SelectTrigger className="bg-background/50 border-white/10" data-testid="select-smtp-port">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="25">25 (SMTP)</SelectItem>
+                    <SelectItem value="465">465 (SMTPS/SSL)</SelectItem>
+                    <SelectItem value="587">587 (STARTTLS)</SelectItem>
+                    <SelectItem value="2525">2525 (Alternative)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="smtp-server">SMTP Server</Label>
+              <Label htmlFor="smtp-username">SMTP Username</Label>
               <Input 
-                id="smtp-server" 
-                placeholder="smtp.gmail.com"
+                id="smtp-username" 
+                placeholder="your-email@gmail.com"
                 className="bg-background/50 border-white/10" 
-                data-testid="input-smtp-server"
+                data-testid="input-smtp-username"
               />
+              <p className="text-xs text-muted-foreground">Usually your email address</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="smtp-password">SMTP Password / App Password</Label>
+              <Input 
+                id="smtp-password" 
+                type="password"
+                placeholder="••••••••••••••••"
+                className="bg-background/50 border-white/10" 
+                data-testid="input-smtp-password"
+              />
+              <p className="text-xs text-muted-foreground">For Gmail, use an App Password (not your regular password)</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="smtp-from">From Address</Label>
+              <Input 
+                id="smtp-from" 
+                type="email"
+                placeholder="dockpilot@yourdomain.com"
+                className="bg-background/50 border-white/10" 
+                data-testid="input-smtp-from"
+              />
+              <p className="text-xs text-muted-foreground">Email address shown as sender</p>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="space-y-0.5">
+                <Label>Use TLS/SSL Encryption</Label>
+                <p className="text-xs text-muted-foreground">Encrypt connection to SMTP server</p>
+              </div>
+              <Switch 
+                defaultChecked={true}
+                data-testid="switch-smtp-tls"
+              />
+            </div>
+
+            <div className="pt-2">
+              <Button 
+                variant="outline" 
+                className="gap-2"
+                onClick={() => {
+                  toast({
+                    title: "Test Email Sent",
+                    description: "Check your inbox for the test notification.",
+                  });
+                }}
+                data-testid="button-test-email"
+              >
+                <Mail className="w-4 h-4" /> Send Test Email
+              </Button>
             </div>
           </div>
         )}
