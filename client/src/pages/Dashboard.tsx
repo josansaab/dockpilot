@@ -3,13 +3,24 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "@/components/layout/Layout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 import { 
   MoreHorizontal, 
   Power, 
   ExternalLink, 
   Settings, 
   Trash2,
-  HardDrive 
+  HardDrive,
+  Save,
+  X,
+  FolderOpen,
+  Network,
+  Terminal,
+  Plus,
+  Minus
 } from "lucide-react";
 import { 
   DropdownMenu,
@@ -18,12 +29,41 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { appApi, containerApi } from "@/lib/api";
 
+interface AppSettings {
+  id: string;
+  name: string;
+  containerId: string | null;
+  ports: { container: number; host: number }[];
+  environment: Record<string, string>;
+  volumes: { host: string; container: string }[];
+  autoRestart: boolean;
+  networkMode: string;
+}
+
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [selectedApp, setSelectedApp] = useState<any | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -96,6 +136,89 @@ export default function Dashboard() {
         variant: "destructive"
       });
     }
+  };
+
+  const openAppSettings = (app: any) => {
+    setSelectedApp(app);
+    setAppSettings({
+      id: app.id,
+      name: app.name,
+      containerId: app.containerId,
+      ports: app.ports || [],
+      environment: app.environment || {},
+      volumes: app.volumes || [],
+      autoRestart: true,
+      networkMode: 'bridge',
+    });
+    setSettingsDialogOpen(true);
+  };
+
+  const saveAppSettings = async () => {
+    if (!appSettings) return;
+
+    try {
+      await updateAppMutation.mutateAsync({ 
+        id: appSettings.id, 
+        data: {
+          ports: appSettings.ports,
+          environment: appSettings.environment,
+          volumes: appSettings.volumes,
+        }
+      });
+      setSettingsDialogOpen(false);
+      toast({
+        title: "Settings Saved",
+        description: "App configuration has been updated.",
+        className: "border-green-500/50 text-green-500"
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save settings.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const addPortMapping = () => {
+    if (!appSettings) return;
+    setAppSettings({
+      ...appSettings,
+      ports: [...appSettings.ports, { container: 80, host: 8080 }]
+    });
+  };
+
+  const removePortMapping = (index: number) => {
+    if (!appSettings) return;
+    setAppSettings({
+      ...appSettings,
+      ports: appSettings.ports.filter((_, i) => i !== index)
+    });
+  };
+
+  const addVolumeMapping = () => {
+    if (!appSettings) return;
+    setAppSettings({
+      ...appSettings,
+      volumes: [...appSettings.volumes, { host: '/opt/dockpilot/data', container: '/data' }]
+    });
+  };
+
+  const removeVolumeMapping = (index: number) => {
+    if (!appSettings) return;
+    setAppSettings({
+      ...appSettings,
+      volumes: appSettings.volumes.filter((_, i) => i !== index)
+    });
+  };
+
+  const addEnvVariable = () => {
+    if (!appSettings) return;
+    const key = `VAR_${Object.keys(appSettings.environment).length + 1}`;
+    setAppSettings({
+      ...appSettings,
+      environment: { ...appSettings.environment, [key]: '' }
+    });
   };
 
   return (
@@ -173,7 +296,7 @@ export default function Dashboard() {
                      </Button>
                    </DropdownMenuTrigger>
                    <DropdownMenuContent align="end" className="w-48 rounded-xl">
-                     <DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => openAppSettings(app)} data-testid={`button-settings-${app.id}`}>
                        <Settings className="w-4 h-4 mr-2" /> Settings
                      </DropdownMenuItem>
                      <DropdownMenuSeparator />
@@ -212,6 +335,239 @@ export default function Dashboard() {
             </div>
          </div>
       </div>
+
+      {/* App Settings Dialog */}
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              {selectedApp?.name} Settings
+            </DialogTitle>
+            <DialogDescription>
+              Configure container settings, ports, volumes, and environment variables.
+            </DialogDescription>
+          </DialogHeader>
+
+          {appSettings && (
+            <div className="space-y-6 py-4">
+              {/* Network Settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Network className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Network</h3>
+                </div>
+                <Separator />
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label>Network Mode</Label>
+                    <Select 
+                      value={appSettings.networkMode} 
+                      onValueChange={(v) => setAppSettings({...appSettings, networkMode: v})}
+                    >
+                      <SelectTrigger data-testid="select-network-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bridge">Bridge (Default)</SelectItem>
+                        <SelectItem value="host">Host</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Port Mappings</Label>
+                      <Button variant="outline" size="sm" onClick={addPortMapping} data-testid="button-add-port">
+                        <Plus className="w-3 h-3 mr-1" /> Add Port
+                      </Button>
+                    </div>
+                    
+                    {appSettings.ports.map((port, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input 
+                          type="number"
+                          value={port.host}
+                          onChange={(e) => {
+                            const newPorts = [...appSettings.ports];
+                            newPorts[index].host = parseInt(e.target.value) || 0;
+                            setAppSettings({...appSettings, ports: newPorts});
+                          }}
+                          placeholder="Host Port"
+                          className="flex-1"
+                          data-testid={`input-host-port-${index}`}
+                        />
+                        <span className="text-muted-foreground">:</span>
+                        <Input 
+                          type="number"
+                          value={port.container}
+                          onChange={(e) => {
+                            const newPorts = [...appSettings.ports];
+                            newPorts[index].container = parseInt(e.target.value) || 0;
+                            setAppSettings({...appSettings, ports: newPorts});
+                          }}
+                          placeholder="Container Port"
+                          className="flex-1"
+                          data-testid={`input-container-port-${index}`}
+                        />
+                        <Button variant="ghost" size="icon" onClick={() => removePortMapping(index)} data-testid={`button-remove-port-${index}`}>
+                          <Minus className="w-4 h-4 text-red-400" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {appSettings.ports.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No port mappings configured</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Storage Settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Storage</h3>
+                </div>
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Volume Mappings</Label>
+                    <Button variant="outline" size="sm" onClick={addVolumeMapping} data-testid="button-add-volume">
+                      <Plus className="w-3 h-3 mr-1" /> Add Volume
+                    </Button>
+                  </div>
+                  
+                  {appSettings.volumes.map((vol, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Input 
+                        value={vol.host}
+                        onChange={(e) => {
+                          const newVols = [...appSettings.volumes];
+                          newVols[index].host = e.target.value;
+                          setAppSettings({...appSettings, volumes: newVols});
+                        }}
+                        placeholder="Host Path"
+                        className="flex-1"
+                        data-testid={`input-host-volume-${index}`}
+                      />
+                      <span className="text-muted-foreground">:</span>
+                      <Input 
+                        value={vol.container}
+                        onChange={(e) => {
+                          const newVols = [...appSettings.volumes];
+                          newVols[index].container = e.target.value;
+                          setAppSettings({...appSettings, volumes: newVols});
+                        }}
+                        placeholder="Container Path"
+                        className="flex-1"
+                        data-testid={`input-container-volume-${index}`}
+                      />
+                      <Button variant="ghost" size="icon" onClick={() => removeVolumeMapping(index)} data-testid={`button-remove-volume-${index}`}>
+                        <Minus className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {appSettings.volumes.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No volume mappings configured</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Environment Variables */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Environment Variables</h3>
+                </div>
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Variables</Label>
+                    <Button variant="outline" size="sm" onClick={addEnvVariable} data-testid="button-add-env">
+                      <Plus className="w-3 h-3 mr-1" /> Add Variable
+                    </Button>
+                  </div>
+                  
+                  {Object.entries(appSettings.environment).map(([key, value], index) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <Input 
+                        value={key}
+                        onChange={(e) => {
+                          const newEnv = {...appSettings.environment};
+                          delete newEnv[key];
+                          newEnv[e.target.value] = value;
+                          setAppSettings({...appSettings, environment: newEnv});
+                        }}
+                        placeholder="Variable Name"
+                        className="flex-1"
+                        data-testid={`input-env-key-${index}`}
+                      />
+                      <span className="text-muted-foreground">=</span>
+                      <Input 
+                        value={value}
+                        onChange={(e) => {
+                          const newEnv = {...appSettings.environment};
+                          newEnv[key] = e.target.value;
+                          setAppSettings({...appSettings, environment: newEnv});
+                        }}
+                        placeholder="Value"
+                        className="flex-1"
+                        data-testid={`input-env-value-${index}`}
+                      />
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => {
+                          const newEnv = {...appSettings.environment};
+                          delete newEnv[key];
+                          setAppSettings({...appSettings, environment: newEnv});
+                        }} 
+                        data-testid={`button-remove-env-${index}`}
+                      >
+                        <Minus className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {Object.keys(appSettings.environment).length === 0 && (
+                    <p className="text-sm text-muted-foreground">No environment variables configured</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Restart Policy */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Auto-Restart</Label>
+                    <p className="text-xs text-muted-foreground">Automatically restart container if it stops</p>
+                  </div>
+                  <Switch 
+                    checked={appSettings.autoRestart} 
+                    onCheckedChange={(v) => setAppSettings({...appSettings, autoRestart: v})}
+                    data-testid="switch-auto-restart"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsDialogOpen(false)} data-testid="button-cancel-settings">
+              Cancel
+            </Button>
+            <Button onClick={saveAppSettings} className="gap-2" data-testid="button-save-settings">
+              <Save className="w-4 h-4" /> Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

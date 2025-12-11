@@ -4,19 +4,105 @@ import Layout from "@/components/layout/Layout";
 import { APP_CATALOG, AppStoreItem } from "@/data/mockDocker";
 import { 
   Search, 
-  Download
+  Download,
+  Settings,
+  Network,
+  FolderOpen,
+  Terminal,
+  Plus,
+  Minus,
+  Zap
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { appApi } from "@/lib/api";
+
+interface CustomInstallConfig {
+  ports: { container: number; host: number }[];
+  volumes: { host: string; container: string }[];
+  environment: Record<string, string>;
+  networkMode: string;
+}
+
+const defaultPortsForApp = (appId: string): { container: number; host: number }[] => {
+  const portMap: Record<string, { container: number; host: number }[]> = {
+    'plex': [{ container: 32400, host: 32400 }],
+    'pihole': [{ container: 80, host: 8053 }, { container: 53, host: 53 }],
+    'homeassistant': [{ container: 8123, host: 8123 }],
+    'nextcloud': [{ container: 80, host: 8081 }],
+    'portainer': [{ container: 9000, host: 9000 }],
+    'nodered': [{ container: 1880, host: 1880 }],
+    'qbittorrent': [{ container: 8080, host: 8082 }],
+    'jellyfin': [{ container: 8096, host: 8096 }],
+    'nginx': [{ container: 80, host: 80 }],
+    'postgres': [{ container: 5432, host: 5432 }],
+    'mysql': [{ container: 3306, host: 3306 }],
+    'redis': [{ container: 6379, host: 6379 }],
+    'mongodb': [{ container: 27017, host: 27017 }],
+    'grafana': [{ container: 3000, host: 3000 }],
+    'prometheus': [{ container: 9090, host: 9090 }],
+    'uptime-kuma': [{ container: 3001, host: 3001 }],
+    'syncthing': [{ container: 8384, host: 8384 }],
+    'filebrowser': [{ container: 80, host: 8085 }],
+    'vaultwarden': [{ container: 80, host: 8086 }],
+    'homepage': [{ container: 3000, host: 3010 }],
+  };
+  return portMap[appId] || [{ container: 80, host: 8080 }];
+};
+
+const defaultVolumesForApp = (appId: string): { host: string; container: string }[] => {
+  const volumeMap: Record<string, { host: string; container: string }[]> = {
+    'plex': [{ host: '/opt/dockpilot/data/plex/config', container: '/config' }, { host: '/opt/dockpilot/data/plex/media', container: '/media' }],
+    'jellyfin': [{ host: '/opt/dockpilot/data/jellyfin/config', container: '/config' }, { host: '/opt/dockpilot/data/jellyfin/cache', container: '/cache' }],
+    'nextcloud': [{ host: '/opt/dockpilot/data/nextcloud', container: '/var/www/html' }],
+    'homeassistant': [{ host: '/opt/dockpilot/data/homeassistant', container: '/config' }],
+    'pihole': [{ host: '/opt/dockpilot/data/pihole', container: '/etc/pihole' }],
+    'qbittorrent': [{ host: '/opt/dockpilot/data/qbittorrent', container: '/config' }, { host: '/opt/dockpilot/downloads', container: '/downloads' }],
+    'filebrowser': [{ host: '/opt/dockpilot/data/filebrowser', container: '/srv' }],
+    'vaultwarden': [{ host: '/opt/dockpilot/data/vaultwarden', container: '/data' }],
+  };
+  return volumeMap[appId] || [];
+};
+
+const defaultEnvForApp = (appId: string): Record<string, string> => {
+  const envMap: Record<string, Record<string, string>> = {
+    'pihole': { 'TZ': 'UTC', 'WEBPASSWORD': 'admin' },
+    'postgres': { 'POSTGRES_PASSWORD': 'changeme', 'POSTGRES_USER': 'admin', 'POSTGRES_DB': 'app' },
+    'mysql': { 'MYSQL_ROOT_PASSWORD': 'changeme', 'MYSQL_DATABASE': 'app' },
+    'redis': { 'REDIS_PASSWORD': '' },
+    'mongodb': { 'MONGO_INITDB_ROOT_USERNAME': 'admin', 'MONGO_INITDB_ROOT_PASSWORD': 'changeme' },
+    'grafana': { 'GF_SECURITY_ADMIN_PASSWORD': 'admin' },
+  };
+  return envMap[appId] || { 'TZ': 'UTC' };
+};
 
 export default function AppStore() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [installingAppId, setInstallingAppId] = useState<string | null>(null);
+  const [customInstallDialogOpen, setCustomInstallDialogOpen] = useState(false);
+  const [selectedApp, setSelectedApp] = useState<AppStoreItem | null>(null);
+  const [customConfig, setCustomConfig] = useState<CustomInstallConfig | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -31,17 +117,7 @@ export default function AppStore() {
 
   // Install mutation
   const installMutation = useMutation({
-    mutationFn: async (app: AppStoreItem) => {
-      // Get default ports based on app
-      const defaultPorts: { container: number; host: number }[] = [];
-      if (app.id === 'plex') defaultPorts.push({ container: 32400, host: 32400 });
-      if (app.id === 'pihole') defaultPorts.push({ container: 80, host: 8053 });
-      if (app.id === 'homeassistant') defaultPorts.push({ container: 8123, host: 8123 });
-      if (app.id === 'nextcloud') defaultPorts.push({ container: 80, host: 8081 });
-      if (app.id === 'portainer') defaultPorts.push({ container: 9000, host: 9000 });
-      if (app.id === 'nodered') defaultPorts.push({ container: 1880, host: 1880 });
-      if (app.id === 'qbittorrent') defaultPorts.push({ container: 8080, host: 8082 });
-      
+    mutationFn: async ({ app, config }: { app: AppStoreItem; config: CustomInstallConfig }) => {
       const payload = {
         id: app.id,
         name: app.name,
@@ -49,9 +125,10 @@ export default function AppStore() {
         category: app.category,
         image: app.image,
         icon: app.iconUrl,
-        ports: defaultPorts,
-        environment: {},
-        volumes: [],
+        ports: config.ports,
+        environment: config.environment,
+        volumes: config.volumes,
+        networkMode: config.networkMode,
         status: 'installing',
       };
 
@@ -60,6 +137,7 @@ export default function AppStore() {
     },
     onSuccess: (data) => {
       setInstallingAppId(null);
+      setCustomInstallDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['apps'] });
       const statusMsg = data.status === 'running' 
         ? `${data.name} is now running!` 
@@ -81,13 +159,79 @@ export default function AppStore() {
     },
   });
 
-  const handleInstall = async (app: AppStoreItem) => {
+  const handleQuickInstall = async (app: AppStoreItem) => {
     setInstallingAppId(app.id);
     toast({
       title: "Starting Installation",
       description: `Installing ${app.name}...`,
     });
-    installMutation.mutate(app);
+    
+    const config: CustomInstallConfig = {
+      ports: defaultPortsForApp(app.id),
+      volumes: defaultVolumesForApp(app.id),
+      environment: defaultEnvForApp(app.id),
+      networkMode: 'bridge',
+    };
+    
+    installMutation.mutate({ app, config });
+  };
+
+  const openCustomInstall = (app: AppStoreItem) => {
+    setSelectedApp(app);
+    setCustomConfig({
+      ports: defaultPortsForApp(app.id),
+      volumes: defaultVolumesForApp(app.id),
+      environment: defaultEnvForApp(app.id),
+      networkMode: 'bridge',
+    });
+    setCustomInstallDialogOpen(true);
+  };
+
+  const handleCustomInstall = () => {
+    if (!selectedApp || !customConfig) return;
+    setInstallingAppId(selectedApp.id);
+    installMutation.mutate({ app: selectedApp, config: customConfig });
+  };
+
+  const addPortMapping = () => {
+    if (!customConfig) return;
+    setCustomConfig({
+      ...customConfig,
+      ports: [...customConfig.ports, { container: 80, host: 8080 }]
+    });
+  };
+
+  const removePortMapping = (index: number) => {
+    if (!customConfig) return;
+    setCustomConfig({
+      ...customConfig,
+      ports: customConfig.ports.filter((_, i) => i !== index)
+    });
+  };
+
+  const addVolumeMapping = () => {
+    if (!customConfig) return;
+    setCustomConfig({
+      ...customConfig,
+      volumes: [...customConfig.volumes, { host: '/opt/dockpilot/data', container: '/data' }]
+    });
+  };
+
+  const removeVolumeMapping = (index: number) => {
+    if (!customConfig) return;
+    setCustomConfig({
+      ...customConfig,
+      volumes: customConfig.volumes.filter((_, i) => i !== index)
+    });
+  };
+
+  const addEnvVariable = () => {
+    if (!customConfig) return;
+    const key = `VAR_${Object.keys(customConfig.environment).length + 1}`;
+    setCustomConfig({
+      ...customConfig,
+      environment: { ...customConfig.environment, [key]: '' }
+    });
   };
 
   return (
@@ -170,27 +314,272 @@ export default function AppStore() {
                    <Download className="w-3 h-3 mr-1" />
                    {app.downloads}
                  </div>
-                 <Button 
-                   onClick={() => handleInstall(app)}
-                   disabled={installingAppId === app.id}
-                   size="sm"
-                   className={cn(
-                     "rounded-full px-6 transition-all duration-300",
-                     installingAppId === app.id ? "w-full" : ""
-                   )}
-                   data-testid={`button-install-${app.id}`}
-                 >
-                   {installingAppId === app.id ? (
-                     "Installing..." 
-                   ) : (
-                     "Install"
-                   )}
-                 </Button>
+                 <div className="flex gap-2">
+                   <Button 
+                     variant="outline"
+                     size="sm"
+                     onClick={() => openCustomInstall(app)}
+                     disabled={installingAppId === app.id}
+                     className="rounded-full"
+                     data-testid={`button-custom-${app.id}`}
+                   >
+                     <Settings className="w-3 h-3 mr-1" /> Custom
+                   </Button>
+                   <Button 
+                     onClick={() => handleQuickInstall(app)}
+                     disabled={installingAppId === app.id}
+                     size="sm"
+                     className="rounded-full px-4"
+                     data-testid={`button-install-${app.id}`}
+                   >
+                     {installingAppId === app.id ? (
+                       "Installing..." 
+                     ) : (
+                       <>
+                         <Zap className="w-3 h-3 mr-1" /> Install
+                       </>
+                     )}
+                   </Button>
+                 </div>
                </div>
              </div>
           ))}
         </div>
       </div>
+
+      {/* Custom Install Dialog */}
+      <Dialog open={customInstallDialogOpen} onOpenChange={setCustomInstallDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              Custom Install: {selectedApp?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Configure network, storage, and environment settings before installing.
+            </DialogDescription>
+          </DialogHeader>
+
+          {customConfig && (
+            <div className="space-y-6 py-4">
+              {/* Network Settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Network className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Network</h3>
+                </div>
+                <Separator />
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label>Network Mode</Label>
+                    <Select 
+                      value={customConfig.networkMode} 
+                      onValueChange={(v) => setCustomConfig({...customConfig, networkMode: v})}
+                    >
+                      <SelectTrigger data-testid="select-network-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bridge">Bridge (Default)</SelectItem>
+                        <SelectItem value="host">Host</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Bridge: Isolated network with port mapping. Host: Use host network directly.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Port Mappings</Label>
+                      <Button variant="outline" size="sm" onClick={addPortMapping} data-testid="button-add-port">
+                        <Plus className="w-3 h-3 mr-1" /> Add Port
+                      </Button>
+                    </div>
+                    
+                    {customConfig.ports.map((port, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Label className="text-xs text-muted-foreground">Host Port</Label>
+                          <Input 
+                            type="number"
+                            value={port.host}
+                            onChange={(e) => {
+                              const newPorts = [...customConfig.ports];
+                              newPorts[index].host = parseInt(e.target.value) || 0;
+                              setCustomConfig({...customConfig, ports: newPorts});
+                            }}
+                            data-testid={`input-host-port-${index}`}
+                          />
+                        </div>
+                        <span className="text-muted-foreground mt-6">→</span>
+                        <div className="flex-1">
+                          <Label className="text-xs text-muted-foreground">Container Port</Label>
+                          <Input 
+                            type="number"
+                            value={port.container}
+                            onChange={(e) => {
+                              const newPorts = [...customConfig.ports];
+                              newPorts[index].container = parseInt(e.target.value) || 0;
+                              setCustomConfig({...customConfig, ports: newPorts});
+                            }}
+                            data-testid={`input-container-port-${index}`}
+                          />
+                        </div>
+                        <Button variant="ghost" size="icon" className="mt-6" onClick={() => removePortMapping(index)} data-testid={`button-remove-port-${index}`}>
+                          <Minus className="w-4 h-4 text-red-400" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {customConfig.ports.length === 0 && (
+                      <p className="text-sm text-muted-foreground py-2">No port mappings configured</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Storage Settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Storage</h3>
+                </div>
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Volume Mappings</Label>
+                    <Button variant="outline" size="sm" onClick={addVolumeMapping} data-testid="button-add-volume">
+                      <Plus className="w-3 h-3 mr-1" /> Add Volume
+                    </Button>
+                  </div>
+                  
+                  {customConfig.volumes.map((vol, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Host Path</Label>
+                        <Input 
+                          value={vol.host}
+                          onChange={(e) => {
+                            const newVols = [...customConfig.volumes];
+                            newVols[index].host = e.target.value;
+                            setCustomConfig({...customConfig, volumes: newVols});
+                          }}
+                          placeholder="/opt/dockpilot/data/..."
+                          data-testid={`input-host-volume-${index}`}
+                        />
+                      </div>
+                      <span className="text-muted-foreground mt-6">→</span>
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Container Path</Label>
+                        <Input 
+                          value={vol.container}
+                          onChange={(e) => {
+                            const newVols = [...customConfig.volumes];
+                            newVols[index].container = e.target.value;
+                            setCustomConfig({...customConfig, volumes: newVols});
+                          }}
+                          placeholder="/data"
+                          data-testid={`input-container-volume-${index}`}
+                        />
+                      </div>
+                      <Button variant="ghost" size="icon" className="mt-6" onClick={() => removeVolumeMapping(index)} data-testid={`button-remove-volume-${index}`}>
+                        <Minus className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {customConfig.volumes.length === 0 && (
+                    <p className="text-sm text-muted-foreground py-2">No volume mappings configured. Data may not persist.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Environment Variables */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Environment Variables</h3>
+                </div>
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Variables</Label>
+                    <Button variant="outline" size="sm" onClick={addEnvVariable} data-testid="button-add-env">
+                      <Plus className="w-3 h-3 mr-1" /> Add Variable
+                    </Button>
+                  </div>
+                  
+                  {Object.entries(customConfig.environment).map(([key, value], index) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <Input 
+                        value={key}
+                        onChange={(e) => {
+                          const newEnv = {...customConfig.environment};
+                          delete newEnv[key];
+                          newEnv[e.target.value] = value;
+                          setCustomConfig({...customConfig, environment: newEnv});
+                        }}
+                        placeholder="Variable Name"
+                        className="flex-1 font-mono text-sm"
+                        data-testid={`input-env-key-${index}`}
+                      />
+                      <span className="text-muted-foreground">=</span>
+                      <Input 
+                        value={value}
+                        onChange={(e) => {
+                          const newEnv = {...customConfig.environment};
+                          newEnv[key] = e.target.value;
+                          setCustomConfig({...customConfig, environment: newEnv});
+                        }}
+                        placeholder="Value"
+                        className="flex-1"
+                        type={key.toLowerCase().includes('password') || key.toLowerCase().includes('secret') ? 'password' : 'text'}
+                        data-testid={`input-env-value-${index}`}
+                      />
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => {
+                          const newEnv = {...customConfig.environment};
+                          delete newEnv[key];
+                          setCustomConfig({...customConfig, environment: newEnv});
+                        }} 
+                        data-testid={`button-remove-env-${index}`}
+                      >
+                        <Minus className="w-4 h-4 text-red-400" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {Object.keys(customConfig.environment).length === 0 && (
+                    <p className="text-sm text-muted-foreground py-2">No environment variables configured</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCustomInstallDialogOpen(false)} data-testid="button-cancel-install">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCustomInstall} 
+              disabled={installingAppId !== null}
+              className="gap-2" 
+              data-testid="button-confirm-install"
+            >
+              <Download className="w-4 h-4" /> 
+              {installingAppId ? "Installing..." : "Install App"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
