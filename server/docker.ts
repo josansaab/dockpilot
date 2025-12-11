@@ -152,6 +152,22 @@ export async function removeContainer(containerId: string, force = false): Promi
   await container.remove({ force });
 }
 
+// Remove container by name
+export async function removeContainerByName(containerName: string): Promise<void> {
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => 
+    c.Names.some(n => n === `/${containerName}` || n === containerName)
+  );
+  
+  if (target) {
+    const container = docker.getContainer(target.Id);
+    try {
+      await container.stop().catch(() => {}); // Stop if running
+    } catch (e) {}
+    await container.remove({ force: true });
+  }
+}
+
 // Remove an image
 export async function removeImage(imageId: string, force = false): Promise<void> {
   const image = docker.getImage(imageId);

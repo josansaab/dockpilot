@@ -409,12 +409,24 @@ export async function registerRoutes(
         return res.status(404).json({ error: "App not found" });
       }
       
-      // Remove the container if it exists
-      if (app.containerId) {
+      // Remove the container - try by ID first, then by name
+      const dockerAvailable = await docker.isDockerAvailable();
+      if (dockerAvailable) {
+        // Try removing by container ID
+        if (app.containerId) {
+          try {
+            await docker.stopContainer(app.containerId).catch(() => {});
+            await docker.removeContainer(app.containerId, true);
+          } catch (err) {
+            console.log('Container removal by ID failed, trying by name...');
+          }
+        }
+        
+        // Also try removing by container name (in case ID changed or wasn't stored)
         try {
-          await docker.removeContainer(app.containerId, true);
+          await docker.removeContainerByName(app.name);
         } catch (err) {
-          console.error('Container removal failed:', err);
+          // Container might already be removed, that's ok
         }
       }
       

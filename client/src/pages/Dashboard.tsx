@@ -695,10 +695,63 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Terminal className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>Container must be running to use terminal</p>
-                    <p className="text-sm">Start the container first, then you can execute commands.</p>
+                  <div className="space-y-4">
+                    <div className="text-center py-4 text-muted-foreground">
+                      <Terminal className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>Container is not running</p>
+                      <p className="text-sm mb-4">Start the container to execute commands, or view logs below.</p>
+                    </div>
+
+                    {selectedApp?.containerId && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label>Container Logs</Label>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(`/api/containers/${selectedApp.containerId}/logs`, {
+                                  credentials: 'include',
+                                });
+                                const result = await response.json();
+                                const outputEl = document.getElementById('stopped-terminal-output');
+                                if (outputEl) {
+                                  outputEl.textContent = result.logs || 'No logs available';
+                                }
+                              } catch (error) {
+                                toast({
+                                  title: "Failed to fetch logs",
+                                  variant: "destructive"
+                                });
+                              }
+                            }}
+                            data-testid="button-view-logs"
+                          >
+                            Refresh Logs
+                          </Button>
+                        </div>
+                        <pre 
+                          id="stopped-terminal-output"
+                          className="bg-black rounded-lg p-4 font-mono text-xs text-gray-300 border border-white/10 min-h-[150px] max-h-[250px] overflow-auto whitespace-pre-wrap"
+                        >
+                          Click "Refresh Logs" to view container logs...
+                        </pre>
+
+                        <div className="bg-black rounded-lg p-4 font-mono text-sm border border-white/10">
+                          <p className="text-yellow-400 mb-2"># Troubleshooting commands (run in SSH):</p>
+                          <p className="text-gray-400">docker logs {selectedApp.containerId?.substring(0, 12)}</p>
+                          <p className="text-gray-400">docker inspect {selectedApp.containerId?.substring(0, 12)}</p>
+                          <p className="text-gray-400">docker start {selectedApp.containerId?.substring(0, 12)}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!selectedApp?.containerId && (
+                      <p className="text-sm text-center text-muted-foreground">
+                        No container ID found. Try reinstalling the app.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
