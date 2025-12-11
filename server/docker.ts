@@ -170,6 +170,64 @@ export async function getContainerLogs(containerId: string, tail = 100): Promise
   return logs.toString('utf-8');
 }
 
+// Execute command in container
+export async function execInContainer(containerId: string, command: string): Promise<string> {
+  const container = docker.getContainer(containerId);
+  
+  // Parse command into array - split by spaces but respect quotes
+  const cmdParts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [command];
+  const cleanedParts = cmdParts.map(p => p.replace(/^"|"$/g, ''));
+  
+  const exec = await container.exec({
+    Cmd: cleanedParts,
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+  
+  const stream = await exec.start({ hijack: true, stdin: false });
+  
+  return new Promise((resolve, reject) => {
+    let output = '';
+    
+    stream.on('data', (chunk: Buffer) => {
+      // Docker multiplexes stdout/stderr with an 8-byte header
+      // We need to skip the header bytes for each frame
+      let offset = 0;
+      while (offset < chunk.length) {
+        if (offset + 8 <= chunk.length) {
+          const size = chunk.readUInt32BE(offset + 4);
+          if (offset + 8 + size <= chunk.length) {
+            output += chunk.slice(offset + 8, offset + 8 + size).toString('utf-8');
+            offset += 8 + size;
+          } else {
+            // Incomplete frame, just append remaining
+            output += chunk.slice(offset + 8).toString('utf-8');
+            break;
+          }
+        } else {
+          // Not enough bytes for header, just append
+          output += chunk.slice(offset).toString('utf-8');
+          break;
+        }
+      }
+    });
+    
+    stream.on('end', () => {
+      resolve(output.trim());
+    });
+    
+    stream.on('error', (err: Error) => {
+      reject(err);
+    });
+    
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      stream.destroy();
+      resolve(output.trim() || 'Command timed out after 30 seconds');
+    }, 30000);
+  });
+}
+
 // Helper function
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';

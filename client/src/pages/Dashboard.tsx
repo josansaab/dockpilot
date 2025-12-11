@@ -555,6 +555,153 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+
+              {/* Terminal Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="font-semibold">Container Terminal</h3>
+                </div>
+                <Separator />
+
+                {selectedApp?.status === 'running' && selectedApp?.containerId ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Run commands inside the container for troubleshooting, configuration, or maintenance.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button 
+                        variant="outline" 
+                        className="justify-start gap-2"
+                        onClick={() => {
+                          const cmd = `docker exec -it ${selectedApp.containerId} /bin/bash`;
+                          navigator.clipboard.writeText(cmd);
+                          toast({
+                            title: "Command Copied",
+                            description: "Paste in your terminal to open a shell",
+                          });
+                        }}
+                        data-testid="button-copy-bash"
+                      >
+                        <Terminal className="w-4 h-4" /> Copy Bash Command
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        className="justify-start gap-2"
+                        onClick={() => {
+                          const cmd = `docker exec -it ${selectedApp.containerId} /bin/sh`;
+                          navigator.clipboard.writeText(cmd);
+                          toast({
+                            title: "Command Copied",
+                            description: "Paste in your terminal to open a shell",
+                          });
+                        }}
+                        data-testid="button-copy-sh"
+                      >
+                        <Terminal className="w-4 h-4" /> Copy Shell Command
+                      </Button>
+                    </div>
+
+                    <div className="bg-black rounded-lg p-4 font-mono text-sm border border-white/10">
+                      <p className="text-green-400 mb-2"># Quick commands for {selectedApp.name}:</p>
+                      <p className="text-gray-400">docker exec -it {selectedApp.containerId?.substring(0, 12)} /bin/bash</p>
+                      <p className="text-gray-400">docker logs {selectedApp.containerId?.substring(0, 12)} --tail 100</p>
+                      <p className="text-gray-400">docker inspect {selectedApp.containerId?.substring(0, 12)}</p>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Run Command</Label>
+                      <div className="flex gap-2">
+                        <Input 
+                          id="terminal-command"
+                          placeholder="Enter command (e.g., ls -la, cat /etc/passwd)"
+                          className="flex-1 font-mono bg-background/50 border-white/10"
+                          data-testid="input-terminal-command"
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter') {
+                              const input = e.currentTarget;
+                              const command = input.value;
+                              if (!command) return;
+                              
+                              try {
+                                const response = await fetch(`/api/containers/${selectedApp.containerId}/exec`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ command }),
+                                });
+                                const result = await response.json();
+                                
+                                const outputEl = document.getElementById('terminal-output');
+                                if (outputEl) {
+                                  outputEl.textContent = result.output || result.error || 'Command executed';
+                                }
+                                input.value = '';
+                              } catch (error) {
+                                toast({
+                                  title: "Command Failed",
+                                  description: "Could not execute command",
+                                  variant: "destructive"
+                                });
+                              }
+                            }
+                          }}
+                        />
+                        <Button 
+                          variant="secondary"
+                          onClick={async () => {
+                            const input = document.getElementById('terminal-command') as HTMLInputElement;
+                            const command = input?.value;
+                            if (!command) return;
+                            
+                            try {
+                              const response = await fetch(`/api/containers/${selectedApp.containerId}/exec`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ command }),
+                              });
+                              const result = await response.json();
+                              
+                              const outputEl = document.getElementById('terminal-output');
+                              if (outputEl) {
+                                outputEl.textContent = result.output || result.error || 'Command executed';
+                              }
+                              input.value = '';
+                            } catch (error) {
+                              toast({
+                                title: "Command Failed",
+                                description: "Could not execute command",
+                                variant: "destructive"
+                              });
+                            }
+                          }}
+                          data-testid="button-run-command"
+                        >
+                          Run
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Output</Label>
+                      <pre 
+                        id="terminal-output"
+                        className="bg-black rounded-lg p-4 font-mono text-sm text-gray-300 border border-white/10 min-h-[100px] max-h-[200px] overflow-auto whitespace-pre-wrap"
+                      >
+                        # Output will appear here...
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Terminal className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>Container must be running to use terminal</p>
+                    <p className="text-sm">Start the container first, then you can execute commands.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
